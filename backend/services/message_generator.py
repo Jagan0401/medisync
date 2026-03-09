@@ -1,9 +1,78 @@
 """
 Message Generator — Creates personalized WhatsApp messages per risk tier.
 Uses AI (Groq/Llama) for Critical patients, templates for others.
+Includes multilingual translation via AI.
 """
 
 from integrations.llama_service import generate_ai_response
+
+# Menu appended to every automated outbound message
+MENU_TEXT = (
+    "\n\n📋 Please reply with a number:\n"
+    "1️⃣ Book Appointment\n"
+    "2️⃣ Remind Me Later\n"
+    "3️⃣ Choose Language"
+)
+
+SUPPORTED_LANGUAGES = {
+    'en': 'English',
+    'hi': 'Hindi',
+    'ta': 'Tamil',
+    'te': 'Telugu',
+    'kn': 'Kannada',
+    'ml': 'Malayalam',
+    'bn': 'Bengali',
+    'mr': 'Marathi',
+    'gu': 'Gujarati',
+    'pa': 'Punjabi',
+    'ur': 'Urdu',
+}
+
+
+def translate_message(text, target_language_code):
+    """Translate a message to the target language using AI.
+    Returns the translated text, or original if language is English or unknown."""
+    if not target_language_code or target_language_code == 'en':
+        return text
+    lang_name = SUPPORTED_LANGUAGES.get(target_language_code)
+    if not lang_name:
+        return text
+    prompt = (
+        f"Translate the following healthcare message to {lang_name}. "
+        f"Keep the emojis. Do NOT add any explanation, just return the translated text.\n\n"
+        f"{text}"
+    )
+    translated = generate_ai_response(prompt)
+    return translated.strip() if translated else text
+
+
+def detect_language_and_intent(text):
+    """Use AI to detect language and booking intent from a patient's WhatsApp reply.
+    Returns dict with keys: language, intent, date, test, purpose."""
+    prompt = (
+        "You are a healthcare assistant parsing a patient's WhatsApp reply. "
+        "Analyze this message and return ONLY a JSON object (no markdown, no explanation) with these keys:\n"
+        '- "language": ISO 639-1 code (en, hi, ta, te, kn, ml, bn, mr, gu, pa, ur)\n'
+        '- "intent": one of "book_appointment", "confirm_yes", "cancel", "query", "greeting"\n'
+        '- "date": extracted date if any (YYYY-MM-DD format), or null\n'
+        '- "test": extracted test name if any, or null\n'
+        '- "purpose": brief purpose if mentioned, or null\n\n'
+        f'Patient message: "{text}"'
+    )
+    raw = generate_ai_response(prompt)
+    # Parse the JSON from AI response
+    import json
+    try:
+        # Strip markdown code fences if present
+        cleaned = raw.strip()
+        if cleaned.startswith('```'):
+            cleaned = cleaned.split('\n', 1)[1] if '\n' in cleaned else cleaned[3:]
+            if cleaned.endswith('```'):
+                cleaned = cleaned[:-3]
+            cleaned = cleaned.strip()
+        return json.loads(cleaned)
+    except (json.JSONDecodeError, ValueError):
+        return {'language': 'en', 'intent': 'query', 'date': None, 'test': None, 'purpose': None}
 
 
 def generate_message(patient, risk):
@@ -15,13 +84,15 @@ def generate_message(patient, risk):
     result = patient.get('last_result', 'N/A')
 
     if risk == 'Critical':
-        return _ai_message(name, age, disease, test, result)
+        msg = _ai_message(name, age, disease, test, result)
     elif risk == 'High':
-        return _high_risk_template(name, age, disease, test, result)
+        msg = _high_risk_template(name, age, disease, test, result)
     elif risk == 'Medium':
-        return _medium_risk_template(name, age, disease, test, result)
+        msg = _medium_risk_template(name, age, disease, test, result)
     else:
-        return _low_risk_template(name, disease, test)
+        msg = _low_risk_template(name, disease, test)
+
+    return msg + MENU_TEXT
 
 
 def _ai_message(name, age, disease, test, result):

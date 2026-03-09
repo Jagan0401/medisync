@@ -91,11 +91,11 @@ class Command(BaseCommand):
     # ── Messages ─────────────────────────────────────────────────────
     def _seed_messages(self):
         db.messages.insert_many([
-            {'patient': 'Ravi Kumar', 'hospital': 'Apollo', 'channel': 'WhatsApp', 'message': 'HbA1c reminder', 'disease': 'Diabetes', 'status': 'Delivered'},
-            {'patient': 'Meena Iyer', 'hospital': 'Fortis', 'channel': 'WhatsApp', 'message': 'Creatinine alert', 'disease': 'CKD', 'status': 'Replied'},
-            {'patient': 'Arjun Patel', 'hospital': 'GlobalCare', 'channel': 'SMS', 'message': 'BP reminder', 'disease': 'Hypertension', 'status': 'Sent'},
-            {'patient': 'Neha Sharma', 'hospital': 'MedLife', 'channel': 'WhatsApp', 'message': 'HbA1c reminder', 'disease': 'Diabetes', 'status': 'Delivered'},
-            {'patient': 'Karthik Rao', 'hospital': 'Apollo', 'channel': 'WhatsApp', 'message': 'Kidney test reminder', 'disease': 'CKD', 'status': 'Failed'},
+            {'patient': 'Ravi Kumar', 'hospital': 'Apollo', 'channel': 'WhatsApp', 'message': 'HbA1c reminder', 'disease': 'Diabetes', 'status': 'Delivered', 'sent_at': 'Mar 07'},
+            {'patient': 'Meena Iyer', 'hospital': 'Fortis', 'channel': 'WhatsApp', 'message': 'Creatinine alert', 'disease': 'CKD', 'status': 'Replied', 'sent_at': 'Mar 08'},
+            {'patient': 'Arjun Patel', 'hospital': 'GlobalCare', 'channel': 'SMS', 'message': 'BP reminder', 'disease': 'Hypertension', 'status': 'Sent', 'sent_at': 'Mar 08'},
+            {'patient': 'Neha Sharma', 'hospital': 'MedLife', 'channel': 'WhatsApp', 'message': 'HbA1c reminder', 'disease': 'Diabetes', 'status': 'Delivered', 'sent_at': 'Mar 09'},
+            {'patient': 'Karthik Rao', 'hospital': 'Apollo', 'channel': 'WhatsApp', 'message': 'Kidney test reminder', 'disease': 'CKD', 'status': 'Failed', 'sent_at': 'Mar 09'},
         ])
         self.stdout.write('  ✓ messages')
 

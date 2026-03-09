@@ -35,13 +35,17 @@ def login_view(request):
         return _redirect_for_role(request.user)
 
     if request.method == 'POST':
-        email = request.POST.get('email')
-        password = request.POST.get('password')
+        email = request.POST.get('email', '').strip()
+        password = request.POST.get('password', '')
+        role = request.POST.get('role', '').strip()
 
         user = authenticate(request, username=email, password=password)
         if user is not None:
-            login(request, user)
-            return _redirect_for_role(user)
+            if role and user.role != role:
+                django_messages.error(request, 'Role does not match your account.')
+            else:
+                login(request, user)
+                return _redirect_for_role(user)
         else:
             django_messages.error(request, 'Invalid email or password.')
 
@@ -50,7 +54,11 @@ def login_view(request):
 
 def logout_view(request):
     logout(request)
-    return redirect('accounts:login')
+    response = redirect('accounts:login')
+    response.delete_cookie('sessionid')
+    response.delete_cookie('csrftoken')
+    response.delete_cookie('messages')
+    return response
 
 
 @login_required
@@ -92,6 +100,14 @@ def superadmin_dashboard_view(request):
     risk_high = _mongo_count(db.patients, {'risk': 'High'})
     risk_medium = _mongo_count(db.patients, {'risk': 'Medium'})
     risk_low = _mongo_count(db.patients, {'risk': 'Low'})
+
+    # Top 10 highest-risk patients (by risk_score descending)
+    top_10_patients = list(db.patients.find(
+        {'risk_score': {'$exists': True}},
+        {'_id': 0, 'patient_id': 1, 'name': 1, 'disease': 1, 'risk': 1,
+         'risk_score': 1, 'last_test': 1, 'last_result': 1, 'overdue_days': 1,
+         'hospital': 1, 'age': 1, 'phone': 1, 'whatsapp_state': 1},
+    ).sort('risk_score', -1).limit(10))
     msg_replied = _mongo_count(db.messages, {'status': 'Replied'})
     msg_booked = _mongo_count(db.bookings)
     sent_pct = 100 if total_messages else 0
@@ -127,6 +143,7 @@ def superadmin_dashboard_view(request):
         'risk_high': risk_high,
         'risk_medium': risk_medium,
         'risk_low': risk_low,
+        'top_10_patients': top_10_patients,
         'sent_pct': sent_pct,
         'replied_pct': replied_pct,
         'booked_pct': booked_pct,
@@ -369,17 +386,44 @@ def api_send_message(request):
     patient = request.POST.get('patient', '').strip()
     channel = request.POST.get('channel', 'WhatsApp').strip()
     message = request.POST.get('message', '').strip()
+    language = request.POST.get('language', 'en').strip()
     if not patient:
         return JsonResponse({'error': 'patient is required'}, status=400)
+
+    # Translate if non-English language selected
+    final_message = message
+    if language and language != 'en':
+        from services.message_generator import translate_message
+        final_message = translate_message(message, language)
+
+    # Attempt actual WhatsApp delivery if channel is WhatsApp
+    twilio_sid = None
+    delivery_status = 'Sent'
+    if channel == 'WhatsApp':
+        patient_doc = db.patients.find_one({'name': patient}, {'phone': 1, '_id': 0})
+        phone = patient_doc.get('phone', '') if patient_doc else ''
+        if phone:
+            try:
+                from integrations.twilio_service import send_whatsapp_message
+                twilio_sid = send_whatsapp_message(phone, final_message)
+                delivery_status = 'Delivered'
+            except Exception as exc:
+                delivery_status = 'Failed'
+
+    from services.message_generator import SUPPORTED_LANGUAGES
+    lang_name = SUPPORTED_LANGUAGES.get(language, 'English')
     db.messages.insert_one({
         'patient': patient, 'hospital': '', 'channel': channel,
-        'message': message, 'disease': '', 'status': 'Sent',
+        'message': final_message, 'original_message': message if language != 'en' else '',
+        'language': lang_name, 'disease': '', 'status': delivery_status,
+        'twilio_sid': twilio_sid or '',
+        'sent_at': datetime.utcnow().isoformat(),
     })
     db.audit_logs.insert_one({
-        'scope': 'technician', 'action': f'Sent {channel} message',
+        'scope': 'technician', 'action': f'Sent {channel} message ({lang_name})',
         'target': patient, 'time': 'Just now',
     })
-    return JsonResponse({'status': 'ok'})
+    return JsonResponse({'status': 'ok', 'delivered': delivery_status, 'language': lang_name})
 
 
 @login_required
@@ -640,6 +684,262 @@ def api_send_whatsapp(request):
         from tasks.message_dispatcher import send_single_whatsapp
         result = send_single_whatsapp(patient_id, custom_message)
         return JsonResponse(result)
+
+
+# ─── WHATSAPP INCOMING WEBHOOK (Twilio) ────────────────────────────────
+from django.views.decorators.csrf import csrf_exempt
+from django.http import HttpResponse
+
+
+@csrf_exempt
+def whatsapp_incoming_webhook(request):
+    """Receive incoming WhatsApp messages from patients via Twilio webhook.
+    Handles language selection, appointment booking, and general queries.
+    Responds with TwiML XML."""
+    if request.method != 'POST':
+        return HttpResponse('<Response></Response>', content_type='text/xml')
+
+    body = request.POST.get('Body', '').strip()
+    from_number = request.POST.get('From', '').replace('whatsapp:', '')
+    if not body or not from_number:
+        return HttpResponse(
+            '<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
+            content_type='text/xml',
+        )
+
+    # Language menu mapping (must match pipeline's LANGUAGE_MENU)
+    LANGUAGE_MENU = {
+        '1': 'en', '2': 'hi', '3': 'ta', '4': 'te', '5': 'kn', '6': 'ml',
+    }
+    LANGUAGE_NAMES = {
+        'en': 'English', 'hi': 'Hindi', 'ta': 'Tamil',
+        'te': 'Telugu', 'kn': 'Kannada', 'ml': 'Malayalam',
+    }
+
+    # Look up patient by phone number
+    # Prefer the patient currently awaiting language selection (pipeline target)
+    projection = {
+        '_id': 0, 'name': 1, 'patient_id': 1, 'disease': 1, 'phone': 1,
+        'hospital': 1, 'doctor': 1, 'last_test': 1, 'last_result': 1,
+        'risk': 1, 'whatsapp_state': 1, 'preferred_language': 1,
+        'age': 1, 'risk_score': 1,
+    }
+    phone_regex = {'$regex': from_number[-10:]}
+    patient = db.patients.find_one(
+        {'phone': phone_regex, 'whatsapp_state': 'awaiting_language'},
+        projection,
+    )
+    if not patient:
+        # Fall back: patient with active conversation state
+        patient = db.patients.find_one(
+            {'phone': phone_regex, 'whatsapp_state': 'active'},
+            projection,
+        )
+    if not patient:
+        # Fall back: any patient with this phone, newest first
+        patient = db.patients.find_one(
+            {'phone': phone_regex},
+            projection,
+            sort=[('_id', -1)],
+        )
+
+    patient_name = patient.get('name', 'Patient') if patient else 'Patient'
+    patient_id = patient.get('patient_id', '') if patient else ''
+    whatsapp_state = patient.get('whatsapp_state', '') if patient else ''
+    patient_lang = patient.get('preferred_language', 'en') if patient else 'en'
+
+    # Log the incoming message
+    db.messages.insert_one({
+        'patient': patient_name,
+        'patient_id': patient_id,
+        'channel': 'WhatsApp',
+        'message': body,
+        'language': patient_lang,
+        'status': 'Received',
+        'direction': 'inbound',
+        'from_number': from_number,
+        'sent_at': datetime.utcnow().isoformat(),
+    })
+
+    reply = ''
+
+    # ── STEP A: Handle language selection (patient is awaiting_language) ──
+    if whatsapp_state == 'awaiting_language' and body.strip() in LANGUAGE_MENU:
+        chosen_code = LANGUAGE_MENU[body.strip()]
+        chosen_name = LANGUAGE_NAMES.get(chosen_code, 'English')
+
+        # Save language preference and move to active state
+        db.patients.update_one(
+            {'patient_id': patient_id},
+            {'$set': {
+                'preferred_language': chosen_code,
+                'whatsapp_state': 'active',
+            }}
+        )
+        patient_lang = chosen_code
+
+        # Build the detailed health message in English first
+        disease = patient.get('disease', 'your condition')
+        last_test = patient.get('last_test', 'test')
+        last_result = patient.get('last_result', 'N/A')
+        risk = patient.get('risk', 'Unknown')
+        age = patient.get('age', '')
+        hospital = patient.get('hospital', '')
+
+        from services.message_generator import generate_message, translate_message
+        health_msg = generate_message(patient, risk)
+
+        # Add booking prompt
+        health_msg += (
+            "\n\n📅 Would you like to schedule a test appointment?\n"
+            "Reply *YES* to book an appointment.\n"
+            "Reply *CANCEL* anytime to cancel."
+        )
+
+        # Translate to chosen language if not English
+        if chosen_code != 'en':
+            health_msg = translate_message(health_msg, chosen_code)
+
+        reply = f"✅ Language set to *{chosen_name}*\n\n{health_msg}"
+
+        # Log activity
+        db.activity_feed.insert_one({
+            'scope': 'technician', 'icon': '🌐',
+            'text': f'{patient_name} selected {chosen_name} as preferred language via WhatsApp',
+            'time': datetime.utcnow().strftime('%Y-%m-%d %H:%M'),
+        })
+
+    else:
+        # ── Normal conversation flow (language already selected) ──
+        # Use AI to detect intent and language
+        from services.message_generator import detect_language_and_intent, translate_message
+        parsed = detect_language_and_intent(body)
+        intent = parsed.get('intent', 'query')
+        detected_lang = parsed.get('language', 'en')
+        extracted_date = parsed.get('date')
+        extracted_test = parsed.get('test')
+
+        # Use patient's stored language preference if set, otherwise detected
+        if patient_lang and patient_lang != 'en':
+            lang = patient_lang
+        else:
+            lang = detected_lang
+
+        if intent in ('confirm_yes', 'book_appointment'):
+            # Create a booking via WhatsApp
+            if not extracted_date:
+                from datetime import timedelta
+                tomorrow = (datetime.utcnow() + timedelta(days=1)).strftime('%Y-%m-%d')
+                extracted_date = tomorrow
+
+            test_name = extracted_test or (patient.get('last_test', 'Routine Check') if patient else 'Routine Check')
+            hospital = patient.get('hospital', '') if patient else ''
+            doctor = patient.get('doctor', '') if patient else ''
+
+            booking_doc = {
+                'patient': patient_name,
+                'patient_id': patient_id,
+                'test': test_name,
+                'date': extracted_date,
+                'hospital': hospital,
+                'doctor': doctor,
+                'status': 'Scheduled',
+                'source': 'WhatsApp',
+                'phone': from_number,
+                'created_at': datetime.utcnow().isoformat(),
+            }
+            db.bookings.insert_one(booking_doc)
+
+            # Log activity
+            db.activity_feed.insert_one({
+                'scope': 'technician', 'icon': '📅',
+                'text': f'{patient_name} booked appointment via WhatsApp for {extracted_date}',
+                'time': datetime.utcnow().strftime('%Y-%m-%d %H:%M'),
+            })
+            db.audit_logs.insert_one({
+                'scope': 'technician',
+                'action': 'WhatsApp Booking Created',
+                'target': patient_name,
+                'time': datetime.utcnow().strftime('%Y-%m-%d %H:%M'),
+            })
+
+            reply = (
+                f"✅ Appointment Confirmed!\n\n"
+                f"Patient: {patient_name}\n"
+                f"Test: {test_name}\n"
+                f"Date: {extracted_date}\n"
+                f"Hospital: {hospital or 'Will be assigned'}\n\n"
+                f"A technician will contact you to confirm the time. "
+                f"Reply CANCEL to cancel this appointment."
+            )
+
+        elif intent == 'cancel':
+            # Cancel the most recent scheduled booking for this patient
+            result = db.bookings.find_one_and_update(
+                {'patient': patient_name, 'status': 'Scheduled'},
+                {'$set': {'status': 'Cancelled'}},
+                sort=[('_id', -1)],
+            )
+            if result:
+                reply = f"❌ Your upcoming appointment has been cancelled.\n\nReply YES anytime to book a new one."
+                db.activity_feed.insert_one({
+                    'scope': 'technician', 'icon': '❌',
+                    'text': f'{patient_name} cancelled appointment via WhatsApp',
+                    'time': datetime.utcnow().strftime('%Y-%m-%d %H:%M'),
+                })
+            else:
+                reply = "You don't have any upcoming appointments to cancel."
+
+        else:
+            # General query — use AI to respond helpfully
+            from integrations.llama_service import generate_ai_response
+            disease = patient.get('disease', '') if patient else ''
+            ai_prompt = (
+                f"You are MediSynC, a friendly healthcare WhatsApp assistant. "
+                f"A patient named {patient_name}"
+                f"{' with ' + disease if disease else ''} sent this message: \"{body}\"\n\n"
+                f"Reply helpfully in 2-3 sentences. If they seem to want an appointment, "
+                f"tell them to reply YES to book one. Keep it warm and concise."
+            )
+            reply = generate_ai_response(ai_prompt)
+
+        # Translate reply to patient's preferred language
+        if lang and lang != 'en':
+            reply = translate_message(reply, lang)
+
+    # Log outbound reply
+    db.messages.insert_one({
+        'patient': patient_name,
+        'patient_id': patient_id,
+        'channel': 'WhatsApp',
+        'message': reply[:500],
+        'language': patient_lang,
+        'status': 'Delivered',
+        'direction': 'outbound',
+        'sent_at': datetime.utcnow().isoformat(),
+    })
+
+    # Escape XML special characters in reply
+    from xml.sax.saxutils import escape as xml_escape
+    safe_reply = xml_escape(reply)
+    twiml = f'<?xml version="1.0" encoding="UTF-8"?><Response><Message>{safe_reply}</Message></Response>'
+    return HttpResponse(twiml, content_type='text/xml')
+
+
+@login_required
+@require_POST
+def api_translate_preview(request):
+    """Preview a translated message before sending."""
+    message = request.POST.get('message', '').strip()
+    language = request.POST.get('language', 'en').strip()
+    if not message:
+        return JsonResponse({'error': 'message is required'}, status=400)
+    if language == 'en':
+        return JsonResponse({'translated': message, 'language': 'English'})
+    from services.message_generator import translate_message, SUPPORTED_LANGUAGES
+    translated = translate_message(message, language)
+    lang_name = SUPPORTED_LANGUAGES.get(language, 'English')
+    return JsonResponse({'translated': translated, 'language': lang_name})
 
 
 @login_required

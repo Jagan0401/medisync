@@ -125,3 +125,81 @@ def send_single_whatsapp(patient_id, custom_message=None):
             'sent_at': datetime.utcnow().isoformat(),
         })
         return {'error': str(exc)}
+
+
+@shared_task(name='tasks.send_daily_reminders')
+def send_daily_reminders():
+    """
+    Send reminder messages to patients who chose "Remind Me Later" yesterday.
+    Checks the reminders collection for remind_date == today with status Pending.
+    Should be scheduled to run daily via Celery Beat.
+    """
+    today = datetime.utcnow().strftime('%Y-%m-%d')
+    logger.info('Checking reminders for %s', today)
+
+    pending = list(db.reminders.find({'remind_date': today, 'status': 'Pending'}))
+    logger.info('Found %d pending reminders for today', len(pending))
+
+    sent = 0
+    failed = 0
+
+    for reminder in pending:
+        patient_id = reminder.get('patient_id', '')
+        phone = reminder.get('phone', '')
+        patient_name = reminder.get('patient_name', 'Patient')
+
+        if not phone:
+            continue
+
+        # Look up patient for test info
+        patient = db.patients.find_one(
+            {'patient_id': patient_id},
+            {'_id': 0, 'last_test': 1, 'last_result': 1, 'name': 1},
+        )
+        test = patient.get('last_test', 'checkup') if patient else 'checkup'
+        name = patient.get('name', patient_name) if patient else patient_name
+
+        message = (
+            f"\u23f0 Hi {name}!\n\n"
+            f"This is your reminder about your {test}.\n"
+            f"You asked us to remind you today.\n\n"
+            f"\ud83d\udccb Please reply with a number:\n"
+            f"1\ufe0f\u20e3 Book Appointment\n"
+            f"2\ufe0f\u20e3 Remind Me Later\n"
+            f"3\ufe0f\u20e3 Choose Language"
+        )
+
+        try:
+            sid = send_whatsapp_message(phone, message)
+
+            db.reminders.update_one(
+                {'_id': reminder['_id']},
+                {'$set': {'status': 'Sent'}},
+            )
+
+            db.messages.insert_one({
+                'patient': name,
+                'patient_id': patient_id,
+                'channel': 'WhatsApp',
+                'message': message[:300],
+                'status': 'Delivered',
+                'direction': 'outbound',
+                'twilio_sid': sid,
+                'sent_at': datetime.utcnow().isoformat(),
+            })
+
+            # Clear remind_date from patient record
+            db.patients.update_one(
+                {'patient_id': patient_id},
+                {'$unset': {'remind_date': ''}},
+            )
+
+            sent += 1
+
+        except Exception as exc:
+            logger.error('Failed sending reminder to %s: %s', phone, exc)
+            failed += 1
+
+    result = {'date': today, 'sent': sent, 'failed': failed, 'total': len(pending)}
+    logger.info('Reminder batch complete: %s', result)
+    return result

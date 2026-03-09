@@ -35,5 +35,7 @@ urlpatterns = [
     path('api/technician/feed/', views.api_technician_feed, name='api_technician_feed'),
     path('api/booking/status/', views.api_update_booking_status, name='api_update_booking_status'),
     path('api/sample/status/', views.api_update_sample_status, name='api_update_sample_status'),
+    path('api/translate/preview/', views.api_translate_preview, name='api_translate_preview'),
     path('api/whatsapp/send/', views.api_send_whatsapp, name='api_send_whatsapp'),
+    path('api/whatsapp/webhook/', views.whatsapp_incoming_webhook, name='whatsapp_webhook'),
 ]

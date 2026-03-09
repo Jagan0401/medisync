@@ -1,49 +1,81 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from config.db import db
-from integrations.llama_service import generate_ai_response
 from integrations.twilio_service import send_whatsapp_message
 
 logger = logging.getLogger(__name__)
 
 
-# ── Translation helper ─────────────────────────────────────────────────
-def _translate_to_english(text):
-    prompt = (
-        f"Translate the following message to English. "
-        f"Return ONLY the translated English text.\n\nMessage:\n{text}"
+# ── Language constants ─────────────────────────────────────────────────
+LANGUAGE_MENU = {
+    '1': 'en', '2': 'ta', '3': 'hi', '4': 'te', '5': 'kn', '6': 'ml',
+}
+LANGUAGE_NAMES = {
+    'en': 'English', 'ta': 'Tamil', 'hi': 'Hindi',
+    'te': 'Telugu', 'kn': 'Kannada', 'ml': 'Malayalam',
+}
+
+
+def _main_menu_text(patient_name):
+    """Return the main 3-option menu text."""
+    return (
+        f"Hi {patient_name} 👋\n\n"
+        f"How can we help you today?\n\n"
+        f"Please reply with a number:\n"
+        f"1️⃣ Book Appointment\n"
+        f"2️⃣ Remind Me Later\n"
+        f"3️⃣ Choose Language"
     )
-    try:
-        return generate_ai_response(prompt).strip().split('\n')[0]
-    except Exception:
-        return text
 
 
-# ── Intent classifier ──────────────────────────────────────────────────
-def _classify_intent(message):
-    prompt = (
-        f"Classify the user's intent.\n\nUser message:\n{message}\n\n"
-        f"Choose ONLY one label:\nagree\ndelay\nschedule\nunknown\n\n"
-        f"Return ONLY the label."
+def _language_menu_text():
+    """Return the language selection menu text."""
+    return (
+        "🌐 Please choose your language:\n\n"
+        "1️⃣ English\n"
+        "2️⃣ தமிழ் (Tamil)\n"
+        "3️⃣ हिंदी (Hindi)\n"
+        "4️⃣ తెలుగు (Telugu)\n"
+        "5️⃣ ಕನ್ನಡ (Kannada)\n"
+        "6️⃣ മലയാളം (Malayalam)"
     )
+
+
+def _send_and_log(phone, reply, patient_name, patient_id, patient_lang):
+    """Send a WhatsApp reply and log it to MongoDB."""
     try:
-        return generate_ai_response(prompt).strip().lower()
-    except Exception:
-        return 'unknown'
+        send_whatsapp_message(phone, reply)
+    except Exception as e:
+        logger.error('Twilio send error: %s', e)
 
-
-# ── In-memory language state (per phone) ──
-_user_language = {}
+    db.messages.insert_one({
+        'patient': patient_name,
+        'patient_id': patient_id,
+        'channel': 'WhatsApp',
+        'message': reply[:300],
+        'language': patient_lang,
+        'status': 'Delivered',
+        'direction': 'outbound',
+        'sent_at': datetime.utcnow().isoformat(),
+    })
 
 
 @csrf_exempt
 def whatsapp_webhook(request):
-    """Receive incoming WhatsApp messages from Twilio webhook."""
+    """Receive incoming WhatsApp messages from Twilio webhook.
+
+    Interactive menu flow:
+      1️⃣ Book Appointment  → saves appointment to DB, replies with date
+      2️⃣ Remind Me Later   → schedules a reminder for next day
+      3️⃣ Choose Language   → shows language options
+
+    States: '' (default/menu) | 'awaiting_language'
+    """
     if request.method != 'POST':
         return HttpResponse('Method not allowed', status=405)
 
@@ -55,164 +87,190 @@ def whatsapp_webhook(request):
     if not body:
         return HttpResponse('OK', status=200)
 
-    lower_body = body.lower()
-
-    # Smart translation for non-ASCII
-    if lower_body in ('1', '2'):
-        message = lower_body
-    elif any(ord(c) > 128 for c in body):
-        message = _translate_to_english(body).lower()
-    else:
-        message = lower_body
-
-    logger.info('WhatsApp from %s: %s → %s', phone, body, message)
+    logger.info('WhatsApp from %s: %s', phone, body)
 
     # ── Find patient in MongoDB ──
-    patient = db.patients.find_one({'phone': phone}, {'_id': 0})
+    phone_regex = {'$regex': phone[-10:]}
+    projection = {
+        '_id': 0, 'name': 1, 'patient_id': 1, 'disease': 1, 'phone': 1,
+        'hospital': 1, 'doctor': 1, 'last_test': 1, 'last_result': 1,
+        'age': 1, 'preferred_language': 1, 'whatsapp_state': 1,
+    }
+
+    patient = db.patients.find_one(
+        {'phone': phone_regex, 'whatsapp_state': 'awaiting_language'},
+        projection,
+    )
     if not patient:
-        send_whatsapp_message(phone, 'Sorry, we could not find your patient record. Please contact the clinic.')
+        patient = db.patients.find_one(
+            {'phone': phone_regex},
+            projection,
+            sort=[('_id', -1)],
+        )
+
+    if not patient:
+        try:
+            send_whatsapp_message(
+                phone,
+                'Sorry, we could not find your patient record. Please contact the clinic.',
+            )
+        except Exception as e:
+            logger.error('Twilio send error: %s', e)
         return HttpResponse('OK')
 
-    name = patient.get('name', 'Patient')
-    test = patient.get('last_test', 'test')
-    result = patient.get('last_result', 'N/A')
-    age = patient.get('age', '')
-    disease = patient.get('disease', '')
+    patient_id = patient.get('patient_id', '')
+    patient_name = patient.get('name', 'Patient')
+    whatsapp_state = patient.get('whatsapp_state', '')
+    patient_lang = patient.get('preferred_language', 'en')
 
-    intent = _classify_intent(message)
-    logger.info('Intent for %s: %s', phone, intent)
-
-    # ── Language selection ──
-    if phone not in _user_language:
-        if message == '1':
-            _user_language[phone] = 'english'
-            reply = (
-                f"Language set to English ✅\n\n"
-                f"Hello {name} 👍\n\n"
-                f"Your last {test} result was {result}, which is above the safe range.\n\n"
-                f"Would you prefer:\n1️⃣ Home sample collection\n2️⃣ Visit the clinic"
-            )
-        elif message == '2':
-            _user_language[phone] = 'tamil'
-            reply = (
-                f"மொழி தமிழ் என அமைக்கப்பட்டது ✅\n\n"
-                f"வணக்கம் {name} 👍\n\n"
-                f"உங்கள் கடைசி {test} மதிப்பு {result}.\n\n"
-                f"தயவு செய்து தேர்வு செய்யவும்:\n"
-                f"1️⃣ வீட்டிற்கு மாதிரி சேகரிப்பு\n2️⃣ மருத்துவமனைக்கு வருவது"
-            )
-        else:
-            reply = (
-                f"Hi {name}\nவணக்கம் {name}\n\n"
-                f"Please choose your language\nமொழியை தேர்வு செய்யவும்\n\n"
-                f"1️⃣ English\n2️⃣ தமிழ்"
-            )
-    else:
-        lang = _user_language[phone]
-
-        if intent == 'agree':
-            reply = (
-                f"Great {name} 👍\n\nLet's schedule your {test} test.\n\n"
-                f"Would you prefer:\n1️⃣ Home sample collection\n2️⃣ Visit the clinic"
-            ) if lang == 'english' else (
-                f"சரி {name} 👍\n\nஉங்கள் {test} பரிசோதனைக்கு நேரம் அமைப்போம்.\n\n"
-                f"1️⃣ வீட்டிற்கு மாதிரி சேகரிப்பு\n2️⃣ மருத்துவமனைக்கு வருவது"
-            )
-
-        elif intent == 'delay':
-            reply = (
-                f"I understand {name}.\n\n"
-                f"However your last {test} result was {result}.\n"
-                f"At age {age}, uncontrolled {disease} increases risk of:\n"
-                f"• Heart disease\n• Kidney damage\n• Vision problems\n\n"
-                f"Would you like home sample collection instead?"
-            ) if lang == 'english' else (
-                f"பரவாயில்லை {name}.\n\n"
-                f"ஆனால் உங்கள் கடைசி {test} மதிப்பு {result}.\n\n"
-                f"வீட்டிற்கு மாதிரி சேகரிப்பை ஏற்பாடு செய்யவா?"
-            )
-
-        elif message == '1':
-            reply = (
-                "Perfect 👍\n\nWe will arrange home sample collection.\n\n"
-                "What time works best tomorrow?\nMorning / Afternoon / Evening"
-            ) if lang == 'english' else (
-                "சரி 👍\n\nவீட்டிற்கு மாதிரி சேகரிப்பு ஏற்பாடு செய்கிறோம்.\n\n"
-                "காலை / மதியம் / மாலை"
-            )
-            db.bookings.insert_one({
-                'patient': name, 'patient_id': patient.get('patient_id', ''),
-                'test': test, 'type': 'Home Collection',
-                'status': 'Pending Confirmation', 'technician': '',
-                'created_at': datetime.utcnow().isoformat(),
-            })
-
-        elif message == '2':
-            reply = (
-                "Great 👍\n\nYou can visit the clinic.\n\n"
-                "Would you prefer:\n• Tomorrow\n• This weekend"
-            ) if lang == 'english' else (
-                "சரி 👍\n\nமருத்துவமனைக்கு வரலாம்.\n\n• நாளை\n• இந்த வார இறுதியில்"
-            )
-            db.bookings.insert_one({
-                'patient': name, 'patient_id': patient.get('patient_id', ''),
-                'test': test, 'type': 'Clinic Visit',
-                'status': 'Pending Confirmation', 'technician': '',
-                'created_at': datetime.utcnow().isoformat(),
-            })
-
-        elif intent == 'schedule':
-            if 'morning' in message:
-                slot = 'tomorrow morning'
-            elif 'afternoon' in message:
-                slot = 'tomorrow afternoon'
-            elif 'evening' in message:
-                slot = 'tomorrow evening'
-            else:
-                slot = 'tomorrow'
-
-            reply = (
-                f"Perfect 👍\n\nYour {test} test has been scheduled for {slot}.\n\n"
-                f"Our team will send you a reminder before the appointment."
-            ) if lang == 'english' else (
-                f"சரி 👍\n\nஉங்கள் {test} பரிசோதனை {slot} அன்று திட்டமிடப்பட்டுள்ளது.\n\n"
-                f"நாங்கள் நினைவூட்டல் செய்தி அனுப்புவோம்."
-            )
-            db.bookings.update_one(
-                {'patient_id': patient.get('patient_id'), 'status': 'Pending Confirmation'},
-                {'$set': {'status': 'Scheduled', 'slot': slot}},
-            )
-            db.care_gaps.update_one(
-                {'patient_id': patient.get('patient_id'), 'status': 'Open'},
-                {'$set': {'status': 'Closed', 'closed_at': datetime.utcnow().isoformat()}},
-            )
-
-        else:
-            prompt = (
-                f"You are a healthcare assistant.\n"
-                f"Patient: {name}, Age: {age}, Disease: {disease}, "
-                f"Last test: {test}, Result: {result}\n"
-                f"Patient message: {body}\n\n"
-                f"Reply in {'English' if lang == 'english' else 'Tamil'}. "
-                f"Encourage the patient to take the test. Keep response short."
-            )
-            reply = generate_ai_response(prompt)
-
-    # Send reply
-    try:
-        send_whatsapp_message(phone, reply)
-    except Exception as e:
-        logger.error('Twilio send error: %s', e)
-
-    # Log the conversation
+    # Log incoming message
     db.messages.insert_one({
-        'patient': name,
-        'patient_id': patient.get('patient_id', ''),
-        'hospital': patient.get('hospital', ''),
+        'patient': patient_name,
+        'patient_id': patient_id,
         'channel': 'WhatsApp',
-        'message': f'IN: {body[:100]} | OUT: {reply[:100]}',
-        'status': 'Delivered',
+        'message': body,
+        'language': patient_lang,
+        'status': 'Received',
+        'direction': 'inbound',
+        'from_number': phone,
         'sent_at': datetime.utcnow().isoformat(),
     })
+
+    choice = body.strip()
+    reply = ''
+
+    try:
+        # ╔════════════════════════════════════════════════════════════╗
+        # ║ STATE: awaiting_language — handle language selection       ║
+        # ╚════════════════════════════════════════════════════════════╝
+        if whatsapp_state == 'awaiting_language':
+            if choice in LANGUAGE_MENU:
+                chosen_code = LANGUAGE_MENU[choice]
+                chosen_name = LANGUAGE_NAMES.get(chosen_code, 'English')
+
+                db.patients.update_one(
+                    {'patient_id': patient_id},
+                    {'$set': {
+                        'preferred_language': chosen_code,
+                        'whatsapp_state': '',
+                    }},
+                )
+                patient_lang = chosen_code
+
+                reply = (
+                    f"✅ Language set to {chosen_name}!\n\n"
+                    + _main_menu_text(patient_name)
+                )
+
+                db.activity_feed.insert_one({
+                    'scope': 'technician', 'icon': '🌐',
+                    'text': f'{patient_name} selected {chosen_name} via WhatsApp',
+                    'time': datetime.utcnow().strftime('%Y-%m-%d %H:%M'),
+                })
+            else:
+                reply = _language_menu_text()
+
+        # ╔════════════════════════════════════════════════════════════╗
+        # ║ OPTION 1 — Book Appointment                               ║
+        # ╚════════════════════════════════════════════════════════════╝
+        elif choice == '1':
+            appointment_date = (datetime.utcnow() + timedelta(days=1)).strftime('%Y-%m-%d')
+            test = patient.get('last_test', 'Routine Checkup')
+            hospital = patient.get('hospital', '')
+            doctor = patient.get('doctor', '')
+
+            # Save appointment to database
+            db.appointments.insert_one({
+                'patient_id': patient_id,
+                'patient_name': patient_name,
+                'phone': phone,
+                'hospital': hospital,
+                'doctor': doctor,
+                'appointment_date': appointment_date,
+                'test': test,
+                'status': 'Scheduled',
+                'source': 'WhatsApp',
+                'created_at': datetime.utcnow().isoformat(),
+            })
+
+            reply = (
+                f"✅ Appointment Booked!\n\n"
+                f"📅 Date: {appointment_date}\n"
+                f"🏥 Test: {test}\n"
+                f"📍 Hospital: {hospital or 'Your registered hospital'}\n"
+                f"👨‍⚕️ Doctor: {doctor or 'Assigned doctor'}\n\n"
+                f"We will send you a reminder before your appointment.\n\n"
+                f"Reply with a number:\n"
+                f"1️⃣ Book Another Appointment\n"
+                f"2️⃣ Remind Me Later\n"
+                f"3️⃣ Choose Language"
+            )
+
+            db.activity_feed.insert_one({
+                'scope': 'technician', 'icon': '📅',
+                'text': f'{patient_name} booked an appointment for {appointment_date} via WhatsApp',
+                'time': datetime.utcnow().strftime('%Y-%m-%d %H:%M'),
+            })
+
+        # ╔════════════════════════════════════════════════════════════╗
+        # ║ OPTION 2 — Remind Me Later                                ║
+        # ╚════════════════════════════════════════════════════════════╝
+        elif choice == '2':
+            tomorrow = (datetime.utcnow() + timedelta(days=1)).strftime('%Y-%m-%d')
+
+            # Save reminder to database
+            db.reminders.insert_one({
+                'patient_id': patient_id,
+                'patient_name': patient_name,
+                'phone': phone,
+                'remind_date': tomorrow,
+                'status': 'Pending',
+                'created_at': datetime.utcnow().isoformat(),
+            })
+
+            # Also update patient record so daily task can pick it up
+            db.patients.update_one(
+                {'patient_id': patient_id},
+                {'$set': {'remind_date': tomorrow}},
+            )
+
+            reply = (
+                f"⏰ Got it, {patient_name}!\n\n"
+                f"We will remind you tomorrow ({tomorrow}).\n"
+                f"Take care! 🙏\n\n"
+                f"You will receive a message tomorrow with these options:\n"
+                f"1️⃣ Book Appointment\n"
+                f"2️⃣ Remind Me Later\n"
+                f"3️⃣ Choose Language"
+            )
+
+            db.activity_feed.insert_one({
+                'scope': 'technician', 'icon': '⏰',
+                'text': f'{patient_name} chose "Remind Me Later" — reminder set for {tomorrow}',
+                'time': datetime.utcnow().strftime('%Y-%m-%d %H:%M'),
+            })
+
+        # ╔════════════════════════════════════════════════════════════╗
+        # ║ OPTION 3 — Choose Language                                ║
+        # ╚════════════════════════════════════════════════════════════╝
+        elif choice == '3':
+            db.patients.update_one(
+                {'patient_id': patient_id},
+                {'$set': {'whatsapp_state': 'awaiting_language'}},
+            )
+            reply = _language_menu_text()
+
+        # ╔════════════════════════════════════════════════════════════╗
+        # ║ ANY OTHER MESSAGE — show the main menu                    ║
+        # ╚════════════════════════════════════════════════════════════╝
+        else:
+            reply = _main_menu_text(patient_name)
+
+    except Exception as e:
+        logger.exception('Error processing WhatsApp message from %s: %s', phone, e)
+        reply = _main_menu_text(patient_name)
+
+    # Always send a reply
+    _send_and_log(phone, reply, patient_name, patient_id, patient_lang)
 
     return HttpResponse('OK')
