@@ -12,6 +12,8 @@ import logging
 from datetime import datetime
 
 from celery import shared_task
+from pymongo import UpdateOne
+
 from config.db import db
 from services.risk_engine import calculate_risk, calculate_risk_score
 from services.care_gap_engine import detect_care_gap
@@ -28,10 +30,25 @@ def run_daily_pipeline():
     logger.info('═══ Daily Pipeline START ═══')
     now = datetime.utcnow()
 
-    patients = list(db.patients.find({}, {'_id': 0}))
-    logger.info('Loaded %d patients from MongoDB', len(patients))
+    # Mark pipeline as running
+    db.pipeline_state.update_one(
+        {'_id': 'current'},
+        {'$set': {'status': 'running', 'stage': 'Loading patients', 'started_at': now.isoformat(), 'progress': 0}},
+        upsert=True,
+    )
 
-    stats = {'total': len(patients), 'Critical': 0, 'High': 0, 'Medium': 0, 'Low': 0, 'gaps_found': 0}
+    patients = list(db.patients.find({}, {'_id': 1, 'patient_id': 1, 'name': 1, 'disease': 1,
+                                           'last_result': 1, 'age': 1, 'overdue_days': 1,
+                                           'phone': 1, 'hospital': 1, 'channel': 1}))
+    total = len(patients)
+    logger.info('Loaded %d patients from MongoDB', total)
+
+    # Update stage
+    db.pipeline_state.update_one({'_id': 'current'}, {'$set': {
+        'stage': 'Risk scoring', 'progress': 10, 'total_patients': total,
+    }})
+
+    stats = {'total': total, 'Critical': 0, 'High': 0, 'Medium': 0, 'Low': 0, 'gaps_found': 0}
     ai_decisions = []
     care_gaps = []
     critical_queue = []
@@ -39,17 +56,17 @@ def run_daily_pipeline():
     medium_queue = []
     low_queue = []
 
-    for p in patients:
+    risk_updates = []
+    for i, p in enumerate(patients):
         # ── Step 1: Risk Engine ──
         risk = calculate_risk(p)
         score = calculate_risk_score(p)
         stats[risk] += 1
 
-        # Update patient record with computed risk
-        db.patients.update_one(
-            {'patient_id': p.get('patient_id')},
+        risk_updates.append(UpdateOne(
+            {'_id': p['_id']},
             {'$set': {'risk': risk, 'risk_score': score, 'risk_updated_at': now.isoformat()}},
-        )
+        ))
 
         # ── Step 2: Care Gap Engine ──
         gap = detect_care_gap(p)
@@ -71,9 +88,10 @@ def run_daily_pipeline():
         })
 
         # ── Step 4: Queue for messaging ──
-        phone = p.get('phone', '')
+        p_dict = {k: v for k, v in p.items() if k != '_id'}
+        phone = p_dict.get('phone', '')
         if phone and gap:
-            entry = {**p, 'risk': risk, 'risk_score': score}
+            entry = {**p_dict, 'risk': risk, 'risk_score': score}
             if risk == 'Critical':
                 critical_queue.append(entry)
             elif risk == 'High':
@@ -83,7 +101,19 @@ def run_daily_pipeline():
             else:
                 low_queue.append(entry)
 
+    # ── Bulk-write risk updates ──
+    db.pipeline_state.update_one({'_id': 'current'}, {'$set': {
+        'stage': 'Saving risk scores', 'progress': 50,
+    }})
+    batch_size = 1000
+    for i in range(0, len(risk_updates), batch_size):
+        db.patients.bulk_write(risk_updates[i:i + batch_size], ordered=False)
+
     # ── Step 5: Store results in MongoDB ──
+    db.pipeline_state.update_one({'_id': 'current'}, {'$set': {
+        'stage': 'Storing AI decisions', 'progress': 70,
+    }})
+
     if ai_decisions:
         db.ai_decisions.delete_many({})
         db.ai_decisions.insert_many(ai_decisions)
@@ -109,6 +139,76 @@ def run_daily_pipeline():
         upsert=True,
     )
 
+    # ── Add activity feed entries ──
+    feed_time = now.strftime('%Y-%m-%d %H:%M')
+    feed_entries = [
+        {
+            'scope': 'superadmin',
+            'icon': '🔬',
+            'text': f"Pipeline analyzed {stats['total']:,} patients — Critical:{stats['Critical']:,} High:{stats['High']:,} Medium:{stats['Medium']:,} Low:{stats['Low']:,}",
+            'time': feed_time,
+            'created_at': now,
+        },
+        {
+            'scope': 'superadmin',
+            'icon': '⚠️',
+            'text': f"{stats['gaps_found']:,} care gaps detected across all hospitals",
+            'time': feed_time,
+            'created_at': now,
+        },
+    ]
+    msg_queue_total = len(critical_queue) + len(high_queue) + len(medium_queue) + len(low_queue)
+    if msg_queue_total:
+        feed_entries.append({
+            'scope': 'superadmin',
+            'icon': '🤖',
+            'text': f"AI queued {msg_queue_total:,} WhatsApp outreach messages",
+            'time': feed_time,
+            'created_at': now,
+        })
+
+    # Hospital-admin scoped feed entries
+    feed_entries.append({
+        'scope': 'hospital_admin',
+        'icon': '🔬',
+        'text': f"AI engine processed {stats['total']:,} patients — {stats['gaps_found']:,} care gaps detected",
+        'time': feed_time,
+        'created_at': now,
+    })
+    feed_entries.append({
+        'scope': 'hospital_admin',
+        'icon': '📊',
+        'text': f"Risk distribution: Critical {stats['Critical']:,} | High {stats['High']:,} | Medium {stats['Medium']:,} | Low {stats['Low']:,}",
+        'time': feed_time,
+        'created_at': now,
+    })
+    if msg_queue_total:
+        feed_entries.append({
+            'scope': 'hospital_admin',
+            'icon': '💬',
+            'text': f"{msg_queue_total:,} patient outreach messages queued for delivery",
+            'time': feed_time,
+            'created_at': now,
+        })
+
+    # Doctor-scoped feed entries
+    feed_entries.append({
+        'scope': 'doctor',
+        'icon': '📋',
+        'text': f"AI analyzed {stats['total']:,} patients — {stats['Critical']:,} critical, {stats['High']:,} high-risk flagged",
+        'time': feed_time,
+        'created_at': now,
+    })
+    feed_entries.append({
+        'scope': 'doctor',
+        'icon': '⚠️',
+        'text': f"{stats['gaps_found']:,} care gaps detected — review overdue tests",
+        'time': feed_time,
+        'created_at': now,
+    })
+
+    db.activity_feed.insert_many(feed_entries)
+
     # Log the pipeline run
     db.audit_logs.insert_one({
         'scope': 'superadmin',
@@ -118,19 +218,42 @@ def run_daily_pipeline():
                   f"Medium:{stats['Medium']} Low:{stats['Low']} "
                   f"Gaps:{stats['gaps_found']}",
         'hospital': 'ALL',
-        'time': now.strftime('%Y-%m-%d %H:%M'),
+        'time': feed_time,
     })
 
     # ── Step 6: Dispatch messages tier-by-tier ──
-    from tasks.message_dispatcher import dispatch_messages_batch
-    if critical_queue:
-        dispatch_messages_batch.delay([_serialise(p) for p in critical_queue], 'Critical')
-    if high_queue:
-        dispatch_messages_batch.delay([_serialise(p) for p in high_queue], 'High')
-    if medium_queue:
-        dispatch_messages_batch.delay([_serialise(p) for p in medium_queue], 'Medium')
-    if low_queue:
-        dispatch_messages_batch.delay([_serialise(p) for p in low_queue], 'Low')
+    db.pipeline_state.update_one({'_id': 'current'}, {'$set': {
+        'stage': 'Dispatching messages', 'progress': 85,
+    }})
+
+    messages_dispatched = 0
+    try:
+        from tasks.message_dispatcher import dispatch_messages_batch
+        if critical_queue:
+            dispatch_messages_batch.delay([_serialise(p) for p in critical_queue], 'Critical')
+            messages_dispatched += len(critical_queue)
+        if high_queue:
+            dispatch_messages_batch.delay([_serialise(p) for p in high_queue], 'High')
+            messages_dispatched += len(high_queue)
+        if medium_queue:
+            dispatch_messages_batch.delay([_serialise(p) for p in medium_queue], 'Medium')
+            messages_dispatched += len(medium_queue)
+        if low_queue:
+            dispatch_messages_batch.delay([_serialise(p) for p in low_queue], 'Low')
+            messages_dispatched += len(low_queue)
+    except Exception as exc:
+        logger.warning('Message dispatch skipped (Celery/Redis unavailable): %s', exc)
+
+    # Mark pipeline complete
+    stats['messages_queued'] = msg_queue_total
+    stats['messages_dispatched'] = messages_dispatched
+    db.pipeline_state.update_one({'_id': 'current'}, {'$set': {
+        'status': 'completed',
+        'stage': 'Complete',
+        'progress': 100,
+        'completed_at': datetime.utcnow().isoformat(),
+        'stats': stats,
+    }})
 
     logger.info('═══ Daily Pipeline END ═══  stats=%s', stats)
     return stats

@@ -20,8 +20,8 @@ def _redirect_for_role(user):
         return redirect('accounts:hospital_admin')
     if user.role == 'doctor':
         return redirect('accounts:doctor')
-    if user.role in ('coordinator', 'technician'):
-        return redirect('accounts:coordinator')
+    if user.role == 'technician':
+        return redirect('accounts:technician')
     # Fallback: go to root landing page instead of dashboard to avoid loop
     return redirect('index')
 
@@ -85,11 +85,24 @@ def superadmin_dashboard_view(request):
     active_hospitals = sum(1 for h in hospitals if h.get('is_active'))
     total_care_gaps = _mongo_count(db.care_gaps, {'status': 'Open'})
     closed_care_gaps = _mongo_count(db.care_gaps, {'status': 'Closed'})
+    total_messages = _mongo_count(db.messages)
+    delivered = _mongo_count(db.messages, {'status': 'Delivered'})
+    delivery_rate = round(delivered / total_messages * 100, 1) if total_messages else 0
+    risk_critical = _mongo_count(db.patients, {'risk': 'Critical'})
+    risk_high = _mongo_count(db.patients, {'risk': 'High'})
+    risk_medium = _mongo_count(db.patients, {'risk': 'Medium'})
+    risk_low = _mongo_count(db.patients, {'risk': 'Low'})
+    msg_replied = _mongo_count(db.messages, {'status': 'Replied'})
+    msg_booked = _mongo_count(db.bookings)
+    sent_pct = 100 if total_messages else 0
+    replied_pct = round(msg_replied / total_messages * 100) if total_messages else 0
+    booked_pct = round(msg_booked / total_messages * 100) if total_messages else 0
 
     ctx = {
         'total_hospitals': len(hospitals),
         'active_hospitals': active_hospitals,
         'total_patients': f'{total_patients:,}',
+        'total_patients_raw': total_patients,
         'hospitals': hospitals,
         'users': _mongo_list(db.platform_users),
         'patients': _mongo_list(db.patients, sort=[('overdue_days', -1)], limit=50),
@@ -105,9 +118,18 @@ def superadmin_dashboard_view(request):
         'audit_logs': _mongo_list(db.audit_logs, {'scope': 'superadmin'}),
         'dataset_uploads': _mongo_list(db.dataset_uploads),
         'analytics': _mongo_list(db.analytics, {'scope': 'superadmin', 'label': {'$exists': True}}),
-        'daily_messages': f'{_mongo_count(db.messages):,}',
+        'daily_messages': f'{total_messages:,}',
+        'delivery_rate': delivery_rate,
         'care_gaps_today': f'{total_care_gaps:,}',
         'care_gaps_closed': f'{closed_care_gaps:,}',
+        'admin_name': request.user.get_full_name() or request.user.username,
+        'risk_critical': risk_critical,
+        'risk_high': risk_high,
+        'risk_medium': risk_medium,
+        'risk_low': risk_low,
+        'sent_pct': sent_pct,
+        'replied_pct': replied_pct,
+        'booked_pct': booked_pct,
     }
     return render(request, 'superadmin.html', ctx)
 
@@ -119,12 +141,34 @@ def hospital_admin_view(request):
         return _redirect_for_role(request.user)
 
     total_patients = _mongo_count(db.patients)
+    open_gaps = _mongo_count(db.care_gaps, {'status': 'Open'})
+    closed_gaps = _mongo_count(db.care_gaps, {'status': 'Closed'})
+
+    # Disease distribution for chart
+    disease_counts = {}
+    for d in db.patients.aggregate([
+        {'$group': {'_id': '$disease', 'count': {'$sum': 1}}},
+        {'$sort': {'count': -1}},
+        {'$limit': 6},
+    ]):
+        disease_counts[d['_id']] = d['count']
+    disease_labels = list(disease_counts.keys())
+    disease_values = list(disease_counts.values())
+    disease_max = max(disease_values) if disease_values else 1
+    disease_pcts = [round(v / total_patients * 100) if total_patients else 0 for v in disease_values]
+    disease_heights = [round(v / disease_max * 100) for v in disease_values]
+    disease_data = [{'label': l, 'pct': p, 'height': h} for l, p, h in zip(disease_labels, disease_pcts, disease_heights)]
+
+    # Hospital name from user's org or first hospital
+    hospital_name = request.user.organization_id if hasattr(request.user, 'organization_id') and request.user.organization_id else ''
+    if not hospital_name:
+        h = db.hospitals.find_one({}, {'name': 1, '_id': 0})
+        hospital_name = h.get('name', 'Hospital') if h else 'Hospital'
 
     ctx = {
         'patients': _mongo_list(db.patients, sort=[('overdue_days', -1)], limit=50),
         'doctors': _mongo_list(db.doctors),
         'technicians': _mongo_list(db.technicians),
-        'coordinators': _mongo_list(db.coordinators),
         'care_gaps': _mongo_list(db.care_gaps, sort=[('overdue_days', -1)], limit=50),
         'bookings': _mongo_list(db.bookings),
         'messages': _mongo_list(db.messages),
@@ -133,7 +177,14 @@ def hospital_admin_view(request):
         'audit_logs': _mongo_list(db.audit_logs, {'scope': 'hospital_admin'}),
         'analytics': _mongo_list(db.analytics, {'scope': 'hospital_admin', 'label': {'$exists': True}}),
         'total_patients': f'{total_patients:,}',
+        'care_gaps_open': f'{open_gaps:,}',
+        'care_gaps_closed': f'{closed_gaps:,}',
         'admin_name': request.user.get_full_name() or request.user.username,
+        'hospital_name': hospital_name,
+        'disease_labels': disease_labels,
+        'disease_pcts': disease_pcts,
+        'disease_heights': disease_heights,
+        'disease_data': disease_data,
     }
     return render(request, 'hospitaladmin.html', ctx)
 
@@ -148,6 +199,11 @@ def doctor_view(request):
     critical_alerts = _mongo_count(db.patients, {'risk': {'$in': ['High', 'Critical']}})
     open_gaps = _mongo_count(db.care_gaps, {'status': 'Open'})
     closed_gaps = _mongo_count(db.care_gaps, {'status': 'Closed'})
+    risk_low = _mongo_count(db.patients, {'risk': 'Low'})
+    risk_med = _mongo_count(db.patients, {'risk': 'Medium'})
+    risk_high = _mongo_count(db.patients, {'risk': 'High'})
+    risk_crit = _mongo_count(db.patients, {'risk': 'Critical'})
+    risk_max = max(risk_low, risk_med, risk_high, risk_crit, 1)
 
     ctx = {
         'patients': _mongo_list(db.patients, sort=[('overdue_days', -1)], limit=50),
@@ -159,45 +215,71 @@ def doctor_view(request):
         'test_results': _mongo_list(db.test_results, {'scope': 'recent'}, limit=50),
         'test_history': _mongo_list(db.test_results, limit=10),
         'appointments': _mongo_list(db.appointments),
+        'messages': _mongo_list(db.messages, limit=50),
         'feed': _mongo_list(db.activity_feed, {'scope': 'doctor'}),
         'audit_logs': _mongo_list(db.audit_logs, {'scope': 'doctor'}),
         'analytics': _mongo_list(db.analytics, {'scope': 'doctor', 'label': {'$exists': True}}),
         'doctor_name': request.user.get_full_name() or request.user.username,
         'doctor_initials': ''.join(w[0] for w in (request.user.get_full_name() or request.user.username).split()[:2]).upper(),
+        'risk_low': risk_low,
+        'risk_med': risk_med,
+        'risk_high': risk_high,
+        'risk_crit': risk_crit,
+        'risk_low_pct': round(risk_low / risk_max * 100),
+        'risk_med_pct': round(risk_med / risk_max * 100),
+        'risk_high_pct': round(risk_high / risk_max * 100),
+        'risk_crit_pct': round(risk_crit / risk_max * 100),
     }
     return render(request, 'doctor.html', ctx)
 
 
-# ─── COORDINATOR ───────────────────────────────────────────────────────
+# ─── TECHNICIAN ────────────────────────────────────────────────────────
 @login_required
-def coordinator_view(request):
-    if request.user.role not in ('coordinator', 'technician'):
+def technician_view(request):
+    if request.user.role != 'technician':
         return _redirect_for_role(request.user)
 
-    total_patients = _mongo_count(db.patients)
-    open_gaps = _mongo_count(db.care_gaps, {'status': 'Open'})
-    msg_count = _mongo_count(db.messages)
     booking_count = _mongo_count(db.bookings)
+    completed_bookings = _mongo_count(db.bookings, {'status': 'Completed'})
+    scheduled_bookings = _mongo_count(db.bookings, {'status': 'Scheduled'})
+    delivered_count = _mongo_count(db.test_results)
     followup_pending = _mongo_count(db.followups, {'status': 'Pending'})
 
+    # Build a patient lookup for enriching bookings
+    patients_map = {}
+    for p in db.patients.find({}, {'name': 1, 'disease': 1, 'age': 1, 'phone': 1,
+                                    'patient_id': 1, 'hospital': 1, 'doctor': 1}):
+        patients_map[p.get('name', '')] = p
+
+    # Enrich bookings with patient details
+    bookings_raw = _mongo_list(db.bookings)
+    for b in bookings_raw:
+        pinfo = patients_map.get(b.get('patient', ''), {})
+        b['disease'] = pinfo.get('disease', '')
+        b['age'] = pinfo.get('age', '')
+        b['phone'] = pinfo.get('phone', '')
+        b['patient_id'] = pinfo.get('patient_id', '')
+        b['hospital'] = pinfo.get('hospital', b.get('hospital', ''))
+        b['doctor'] = pinfo.get('doctor', '')
+
     ctx = {
-        'patients': _mongo_list(db.patients, sort=[('overdue_days', -1)], limit=50),
-        'assigned_patients': f'{total_patients:,}',
-        'gap_alerts': f'{open_gaps:,}',
-        'msgs_sent': msg_count,
-        'booked_slots': booking_count,
+        'today_collections': booking_count,
+        'completed_count': completed_bookings,
+        'pending_count': scheduled_bookings,
+        'delivered_count': delivered_count,
         'followup_count': followup_pending,
-        'care_gaps': _mongo_list(db.care_gaps, sort=[('overdue_days', -1)], limit=50),
+        'success_rate': round(completed_bookings / booking_count * 100) if booking_count else 0,
+        'bookings': bookings_raw,
         'messages': _mongo_list(db.messages),
-        'bookings': _mongo_list(db.bookings),
-        'technicians': _mongo_list(db.technicians),
+        'test_results': _mongo_list(db.test_results),
         'followups': _mongo_list(db.followups),
-        'feed': _mongo_list(db.activity_feed, {'scope': 'coordinator'}),
-        'audit_logs': _mongo_list(db.audit_logs, {'scope': 'coordinator'}),
-        'coordinator_name': request.user.get_full_name() or request.user.username,
-        'coordinator_initials': ''.join(w[0] for w in (request.user.get_full_name() or request.user.username).split()[:2]).upper(),
+        'feed': _mongo_list(db.activity_feed, {'scope': 'technician'}),
+        'audit_logs': _mongo_list(db.audit_logs, {'scope': 'technician'}),
+        'technician_name': request.user.get_full_name() or request.user.username,
+        'technician_initials': ''.join(w[0] for w in (request.user.get_full_name() or request.user.username).split()[:2]).upper(),
+        'technician_email': request.user.email or request.user.username,
     }
-    return render(request, 'coordinator.html', ctx)
+    return render(request, 'technician.html', ctx)
 
 
 # ─── API ENDPOINTS (store records) ────────────────────────────────────
@@ -294,7 +376,7 @@ def api_send_message(request):
         'message': message, 'disease': '', 'status': 'Sent',
     })
     db.audit_logs.insert_one({
-        'scope': 'coordinator', 'action': f'Sent {channel} message',
+        'scope': 'technician', 'action': f'Sent {channel} message',
         'target': patient, 'time': 'Just now',
     })
     return JsonResponse({'status': 'ok'})
@@ -511,15 +593,34 @@ def api_run_pipeline(request):
     """Manually trigger the daily risk/care-gap/messaging pipeline."""
     if not _require_platform_admin(request.user):
         return JsonResponse({'error': 'Forbidden'}, status=403)
+
+    # Check if already running
+    state = db.pipeline_state.find_one({'_id': 'current'})
+    if state and state.get('status') == 'running':
+        return JsonResponse({'status': 'already_running', 'stage': state.get('stage', ''), 'progress': state.get('progress', 0)})
+
     try:
         from tasks.daily_monitoring import run_daily_pipeline
         result = run_daily_pipeline.delay()
         return JsonResponse({'status': 'ok', 'task_id': str(result.id)})
-    except Exception as exc:
-        # If Redis/Celery isn't running, run synchronously
+    except Exception:
+        # Celery/Redis not available — run in a background thread
+        import threading
         from tasks.daily_monitoring import run_daily_pipeline
-        stats = run_daily_pipeline()
-        return JsonResponse({'status': 'ok', 'ran_sync': True, 'stats': stats})
+
+        def _run():
+            try:
+                run_daily_pipeline()
+            except Exception as exc:
+                db.pipeline_state.update_one(
+                    {'_id': 'current'},
+                    {'$set': {'status': 'failed', 'stage': str(exc), 'progress': 0}},
+                    upsert=True,
+                )
+
+        t = threading.Thread(target=_run, daemon=True)
+        t.start()
+        return JsonResponse({'status': 'ok', 'ran_async': True})
 
 
 @login_required
@@ -543,7 +644,7 @@ def api_send_whatsapp(request):
 
 @login_required
 def api_pipeline_status(request):
-    """Return latest pipeline stats for the dashboard."""
+    """Return latest pipeline stats, run state, and recent activity feed."""
     stats = {
         'total_patients': db.patients.count_documents({}),
         'critical': db.patients.count_documents({'risk': 'Critical'}),
@@ -555,4 +656,146 @@ def api_pipeline_status(request):
         'messages_sent': db.messages.count_documents({'status': 'Delivered'}),
         'messages_failed': db.messages.count_documents({'status': 'Failed'}),
     }
+
+    # Pipeline run state
+    state = db.pipeline_state.find_one({'_id': 'current'})
+    if state:
+        stats['pipeline_status'] = state.get('status', 'idle')
+        stats['pipeline_stage'] = state.get('stage', '')
+        stats['pipeline_progress'] = state.get('progress', 0)
+        stats['pipeline_started'] = state.get('started_at', '')
+        stats['pipeline_completed'] = state.get('completed_at', '')
+    else:
+        stats['pipeline_status'] = 'idle'
+
+    # Recent activity feed (latest 10, sorted by _id descending for natural insertion order)
+    feed_items = list(db.activity_feed.find(
+        {'scope': 'superadmin'},
+        {'_id': 0, 'icon': 1, 'text': 1, 'time': 1},
+    ).sort('_id', -1).limit(10))
+    stats['feed'] = feed_items
+
     return JsonResponse(stats)
+
+
+@login_required
+def api_hospital_feed(request):
+    """Return latest hospital-admin activity feed and disease distribution."""
+    # Activity feed
+    feed_items = list(db.activity_feed.find(
+        {'scope': 'hospital_admin'},
+        {'_id': 0, 'icon': 1, 'text': 1, 'time': 1},
+    ).sort('_id', -1).limit(10))
+
+    # Disease distribution
+    total_patients = db.patients.count_documents({})
+    disease_counts = {}
+    for d in db.patients.aggregate([
+        {'$group': {'_id': '$disease', 'count': {'$sum': 1}}},
+        {'$sort': {'count': -1}},
+        {'$limit': 6},
+    ]):
+        disease_counts[d['_id']] = d['count']
+    disease_values = list(disease_counts.values())
+    disease_max = max(disease_values) if disease_values else 1
+    disease_data = [
+        {
+            'label': label,
+            'pct': round(count / total_patients * 100) if total_patients else 0,
+            'height': round(count / disease_max * 100),
+        }
+        for label, count in disease_counts.items()
+    ]
+
+    return JsonResponse({'feed': feed_items, 'disease_data': disease_data})
+
+
+@login_required
+def api_doctor_feed(request):
+    """Return latest doctor activity feed and caseload distribution."""
+    feed_items = list(db.activity_feed.find(
+        {'scope': 'doctor'},
+        {'_id': 0, 'icon': 1, 'text': 1, 'time': 1},
+    ).sort('_id', -1).limit(10))
+
+    risk_low = db.patients.count_documents({'risk': 'Low'})
+    risk_med = db.patients.count_documents({'risk': 'Medium'})
+    risk_high = db.patients.count_documents({'risk': 'High'})
+    risk_crit = db.patients.count_documents({'risk': 'Critical'})
+    risk_max = max(risk_low, risk_med, risk_high, risk_crit, 1)
+
+    return JsonResponse({
+        'feed': feed_items,
+        'caseload': {
+            'low_pct': round(risk_low / risk_max * 100),
+            'med_pct': round(risk_med / risk_max * 100),
+            'high_pct': round(risk_high / risk_max * 100),
+            'crit_pct': round(risk_crit / risk_max * 100),
+        },
+    })
+
+
+@login_required
+def api_technician_feed(request):
+    """Return latest technician activity feed and metrics."""
+    feed_items = list(db.activity_feed.find(
+        {'scope': 'technician'},
+        {'_id': 0, 'icon': 1, 'text': 1, 'time': 1},
+    ).sort('_id', -1).limit(10))
+
+    return JsonResponse({
+        'feed': feed_items,
+        'metrics': {
+            'today_collections': db.bookings.count_documents({}),
+            'completed': db.bookings.count_documents({'status': 'Completed'}),
+            'pending': db.bookings.count_documents({'status': 'Scheduled'}),
+            'delivered': db.test_results.count_documents({}),
+            'followups': db.followups.count_documents({'status': 'Pending'}),
+        },
+    })
+
+
+@login_required
+@require_POST
+def api_update_booking_status(request):
+    """Update a booking's status (e.g. Scheduled → In Progress → Completed)."""
+    patient = request.POST.get('patient', '').strip()
+    status = request.POST.get('status', '').strip()
+    if not patient or not status:
+        return JsonResponse({'error': 'patient and status required'}, status=400)
+    allowed = ('Scheduled', 'In Progress', 'Completed')
+    if status not in allowed:
+        return JsonResponse({'error': f'status must be one of {allowed}'}, status=400)
+    result = db.bookings.update_one({'patient': patient}, {'$set': {'status': status}})
+    if result.matched_count == 0:
+        return JsonResponse({'error': 'Booking not found'}, status=404)
+    db.audit_logs.insert_one({
+        'scope': 'technician',
+        'action': f'Updated booking status to {status}',
+        'target': patient,
+        'time': datetime.utcnow().strftime('%Y-%m-%d %H:%M'),
+    })
+    return JsonResponse({'status': 'ok'})
+
+
+@login_required
+@require_POST
+def api_update_sample_status(request):
+    """Update a test result sample status (Collected → In Transit → Delivered)."""
+    patient = request.POST.get('patient', '').strip()
+    status = request.POST.get('status', '').strip()
+    if not patient or not status:
+        return JsonResponse({'error': 'patient and status required'}, status=400)
+    allowed = ('Collected', 'In Transit', 'Delivered')
+    if status not in allowed:
+        return JsonResponse({'error': f'status must be one of {allowed}'}, status=400)
+    result = db.test_results.update_one({'patient': patient}, {'$set': {'status': status}})
+    if result.matched_count == 0:
+        return JsonResponse({'error': 'Sample not found'}, status=404)
+    db.audit_logs.insert_one({
+        'scope': 'technician',
+        'action': f'Sample status → {status}',
+        'target': patient,
+        'time': datetime.utcnow().strftime('%Y-%m-%d %H:%M'),
+    })
+    return JsonResponse({'status': 'ok'})

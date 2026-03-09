@@ -5,7 +5,6 @@ from django.db import models
 class User(AbstractUser):
     ROLE_CHOICES = [
         ('doctor', 'Doctor'),
-        ('coordinator', 'Care Coordinator'),
         ('technician', 'Lab Technician'),
         ('hospital_admin', 'Hospital Admin'),
         ('platform_admin', 'Platform Admin'),

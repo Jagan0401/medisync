@@ -17,7 +17,7 @@ class Command(BaseCommand):
             'hospitals', 'platform_users', 'patients', 'care_gaps', 'messages',
             'bookings', 'ai_decisions', 'activity_feed', 'system_services',
             'error_logs', 'subscriptions', 'protocols', 'audit_logs',
-            'dataset_uploads', 'doctors', 'technicians', 'coordinators',
+            'dataset_uploads', 'doctors', 'technicians',
             'appointments', 'test_results', 'followups', 'analytics',
         ]:
             db[name].drop()
@@ -38,7 +38,6 @@ class Command(BaseCommand):
         self._seed_dataset_uploads()
         self._seed_doctors()
         self._seed_technicians()
-        self._seed_coordinators()
         self._seed_appointments()
         self._seed_test_results()
         self._seed_followups()
@@ -62,7 +61,6 @@ class Command(BaseCommand):
         db.platform_users.insert_many([
             {'name': 'Dr. Meera Iyer', 'role': 'Hospital Admin', 'hospital': 'Apollo Chennai', 'status': 'Active', 'last_login': 'Today'},
             {'name': 'Dr. Rahul Sharma', 'role': 'Doctor', 'hospital': 'Fortis Bangalore', 'status': 'Active', 'last_login': 'Today'},
-            {'name': 'Kavya Nair', 'role': 'Care Coordinator', 'hospital': 'Apollo Chennai', 'status': 'Active', 'last_login': 'Yesterday'},
             {'name': 'Arjun Patel', 'role': 'Lab Technician', 'hospital': 'GlobalCare Delhi', 'status': 'Active', 'last_login': 'Today'},
             {'name': 'Amit Verma', 'role': 'Platform Admin', 'hospital': 'MediSynC', 'status': 'Active', 'last_login': 'Today'},
         ])
@@ -130,20 +128,16 @@ class Command(BaseCommand):
             {'scope': 'superadmin', 'icon': '📂', 'text': 'Apollo Chennai uploaded 20,000 patient records', 'time': '2 mins ago'},
             {'scope': 'superadmin', 'icon': '🤖', 'text': 'AI sent 1,120 automated outreach messages', 'time': '12 mins ago'},
             {'scope': 'superadmin', 'icon': '✅', 'text': 'Fortis Bangalore closed 48 care gaps', 'time': '45 mins ago'},
-            {'scope': 'superadmin', 'icon': '🏠', 'text': 'Coordinator booked home test for patient Ravi Kumar', 'time': '1 hour ago'},
             {'scope': 'superadmin', 'icon': '⚠️', 'text': 'Doctor escalated critical CKD patient in GlobalCare', 'time': '2 hours ago'},
             # Doctor feed
             {'scope': 'doctor', 'icon': '🤖', 'text': 'AI detected overdue HbA1c for Ravi Kumar', 'time': '2 mins ago'},
             {'scope': 'doctor', 'icon': '📋', 'text': 'Patient Meena Iyer booked creatinine test', 'time': '15 mins ago'},
             {'scope': 'doctor', 'icon': '🧪', 'text': 'Lab reported new test results for Arjun Patel', 'time': '1 hour ago'},
-            {'scope': 'doctor', 'icon': '🏠', 'text': 'Care coordinator scheduled home sample collection', 'time': '3 hours ago'},
             {'scope': 'doctor', 'icon': '⚠️', 'text': 'Critical CKD patient escalated to doctor inbox', 'time': '4 hours ago'},
-            # Coordinator feed
-            {'scope': 'coordinator', 'icon': '🤖', 'text': 'AI flagged overdue HbA1c for Ravi Kumar', 'time': '2 mins ago'},
-            {'scope': 'coordinator', 'icon': '🏠', 'text': 'Meena Iyer accepted home test booking', 'time': '15 mins ago'},
-            {'scope': 'coordinator', 'icon': '🧪', 'text': 'Lab technician assigned to CKD patient #P1002', 'time': '1 hour ago'},
-            {'scope': 'coordinator', 'icon': '💬', 'text': 'Message reminder sent to Arjun Patel', 'time': '2 hours ago'},
-            {'scope': 'coordinator', 'icon': '📅', 'text': 'Follow-up scheduled for Neha Sharma', 'time': '4 hours ago'},
+            # Technician feed
+            {'scope': 'technician', 'icon': '🧪', 'text': 'Lab technician assigned to CKD patient #P1002', 'time': '1 hour ago'},
+            {'scope': 'technician', 'icon': '🏠', 'text': 'Home sample collection completed for Ravi Kumar', 'time': '2 hours ago'},
+            {'scope': 'technician', 'icon': '📅', 'text': 'New booking scheduled for Neha Sharma', 'time': '4 hours ago'},
             # Hospital admin feed
             {'scope': 'hospital_admin', 'icon': '📂', 'text': 'New dataset uploaded (20,000 records)', 'time': '5 mins ago'},
             {'scope': 'hospital_admin', 'icon': '🤖', 'text': 'AI engine processed 350 care gaps', 'time': '15 mins ago'},
@@ -208,7 +202,7 @@ class Command(BaseCommand):
             {'scope': 'superadmin', 'user': 'Admin Rahul', 'action': 'Updated hospital plan', 'hospital': 'Fortis', 'time': 'Yesterday'},
             # Hospital admin
             {'scope': 'hospital_admin', 'user': 'Admin', 'action': 'Added doctor Dr. Rahul Sharma', 'time': 'Today'},
-            {'scope': 'hospital_admin', 'user': 'Coordinator', 'action': 'Booked home test #B4920', 'time': 'Today'},
+            {'scope': 'hospital_admin', 'user': 'Technician', 'action': 'Booked home test #B4920', 'time': 'Today'},
             {'scope': 'hospital_admin', 'user': 'Doctor', 'action': 'Escalated CKD patient #P1002', 'time': 'Today'},
             {'scope': 'hospital_admin', 'user': 'AI Engine', 'action': 'Sent 320 automated reminders', 'time': 'Today'},
             {'scope': 'hospital_admin', 'user': 'Admin', 'action': 'Uploaded dataset (Apollo_Mar_09.csv)', 'time': 'Yesterday'},
@@ -218,12 +212,10 @@ class Command(BaseCommand):
             {'scope': 'doctor', 'icon': '⚠️', 'action': 'Escalated patient Meena Iyer', 'time': 'Today, 08:30 AM'},
             {'scope': 'doctor', 'icon': '📅', 'action': 'Scheduled follow-up with Arjun Patel', 'time': 'Yesterday'},
             {'scope': 'doctor', 'icon': '🤖', 'action': 'System AI generated patient alert', 'time': 'Yesterday'},
-            # Coordinator
-            {'scope': 'coordinator', 'action': 'Sent reminder', 'target': 'Ravi Kumar', 'time': 'Today, 11:45 AM'},
-            {'scope': 'coordinator', 'action': 'Booked HbA1c test', 'target': 'Meena Iyer', 'time': 'Today, 10:20 AM'},
-            {'scope': 'coordinator', 'action': 'Assigned technician', 'target': 'P1002 Group', 'time': 'Today, 09:12 AM'},
-            {'scope': 'coordinator', 'action': 'Updated booking status', 'target': '#BK9204', 'time': 'Yesterday'},
-            {'scope': 'coordinator', 'action': 'Care Gap Identified', 'target': 'System AI', 'time': 'Yesterday'},
+            # Technician
+            {'scope': 'technician', 'action': 'Completed sample collection', 'target': 'Ravi Kumar', 'time': 'Today, 11:45 AM'},
+            {'scope': 'technician', 'action': 'Processed HbA1c test', 'target': 'Meena Iyer', 'time': 'Today, 10:20 AM'},
+            {'scope': 'technician', 'action': 'Updated booking status', 'target': '#BK9204', 'time': 'Yesterday'},
         ])
         self.stdout.write('  ✓ audit_logs')
 
@@ -260,17 +252,6 @@ class Command(BaseCommand):
         ])
         self.stdout.write('  ✓ technicians')
 
-    # ── Coordinators ─────────────────────────────────────────────────
-    def _seed_coordinators(self):
-        db.coordinators.insert_many([
-            {'name': 'Kavya Nair', 'assigned_patients': 820, 'status': 'Active'},
-            {'name': 'Ankit Sharma', 'assigned_patients': 640, 'status': 'Active'},
-            {'name': 'Priya Patel', 'assigned_patients': 710, 'status': 'Active'},
-            {'name': 'Rohit Mehta', 'assigned_patients': 520, 'status': 'Active'},
-            {'name': 'Sneha Kapoor', 'assigned_patients': 430, 'status': 'Active'},
-        ])
-        self.stdout.write('  ✓ coordinators')
-
     # ── Appointments ─────────────────────────────────────────────────
     def _seed_appointments(self):
         db.appointments.insert_many([
@@ -285,17 +266,17 @@ class Command(BaseCommand):
     # ── Test Results ─────────────────────────────────────────────────
     def _seed_test_results(self):
         db.test_results.insert_many([
-            {'patient': 'Ravi Kumar', 'test': 'HbA1c', 'result': '9.5%', 'date': 'Jan 10', 'notes': 'Hyperglycemic'},
-            {'patient': 'Ravi Kumar', 'test': 'Creatinine', 'result': '1.8', 'date': 'Feb 3', 'notes': 'Check Kidney'},
-            {'patient': 'Ravi Kumar', 'test': 'BP Check', 'result': '145/92', 'date': 'Mar 1', 'notes': 'Elevated'},
-            {'patient': 'Ravi Kumar', 'test': 'TSH', 'result': '5.2', 'date': 'Feb 12', 'notes': 'Normal Range'},
-            {'patient': 'Ravi Kumar', 'test': 'Lipid Profile', 'result': '210', 'date': 'Dec 18', 'notes': 'Borderline'},
+            {'patient': 'Ravi Kumar', 'test': 'HbA1c', 'result': '9.5%', 'date': 'Jan 10', 'notes': 'Hyperglycemic', 'status': 'Delivered'},
+            {'patient': 'Ravi Kumar', 'test': 'Creatinine', 'result': '1.8', 'date': 'Feb 3', 'notes': 'Check Kidney', 'status': 'Delivered'},
+            {'patient': 'Ravi Kumar', 'test': 'BP Check', 'result': '145/92', 'date': 'Mar 1', 'notes': 'Elevated', 'status': 'Delivered'},
+            {'patient': 'Ravi Kumar', 'test': 'TSH', 'result': '5.2', 'date': 'Feb 12', 'notes': 'Normal Range', 'status': 'Delivered'},
+            {'patient': 'Ravi Kumar', 'test': 'Lipid Profile', 'result': '210', 'date': 'Dec 18', 'notes': 'Borderline', 'status': 'Delivered'},
             # Recent lab reports (all patients)
-            {'patient': 'Ravi Kumar', 'test': 'HbA1c', 'result': '9.5', 'date': 'Mar 10', 'notes': '', 'scope': 'recent'},
-            {'patient': 'Meena Iyer', 'test': 'Creatinine', 'result': '2.1', 'date': 'Mar 9', 'notes': '', 'scope': 'recent'},
-            {'patient': 'Arjun Patel', 'test': 'BP Check', 'result': '145/92', 'date': 'Mar 8', 'notes': '', 'scope': 'recent'},
-            {'patient': 'Neha Sharma', 'test': 'HbA1c', 'result': '6.8', 'date': 'Mar 7', 'notes': '', 'scope': 'recent'},
-            {'patient': 'Karthik Rao', 'test': 'TSH', 'result': '5.3', 'date': 'Mar 6', 'notes': '', 'scope': 'recent'},
+            {'patient': 'Ravi Kumar', 'test': 'HbA1c', 'result': '9.5', 'date': 'Mar 10', 'notes': '', 'scope': 'recent', 'status': 'Collected'},
+            {'patient': 'Meena Iyer', 'test': 'Creatinine', 'result': '2.1', 'date': 'Mar 9', 'notes': '', 'scope': 'recent', 'status': 'In Transit'},
+            {'patient': 'Arjun Patel', 'test': 'BP Check', 'result': '145/92', 'date': 'Mar 8', 'notes': '', 'scope': 'recent', 'status': 'Delivered'},
+            {'patient': 'Neha Sharma', 'test': 'HbA1c', 'result': '6.8', 'date': 'Mar 7', 'notes': '', 'scope': 'recent', 'status': 'Collected'},
+            {'patient': 'Karthik Rao', 'test': 'TSH', 'result': '5.3', 'date': 'Mar 6', 'notes': '', 'scope': 'recent', 'status': 'Delivered'},
         ])
         self.stdout.write('  ✓ test_results')
 

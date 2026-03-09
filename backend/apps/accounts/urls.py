@@ -11,7 +11,7 @@ urlpatterns = [
     path('superadmin/', views.superadmin_dashboard_view, name='superadmin'),
     path('hospital-admin/', views.hospital_admin_view, name='hospital_admin'),
     path('doctor/', views.doctor_view, name='doctor'),
-    path('coordinator/', views.coordinator_view, name='coordinator'),
+    path('technician/', views.technician_view, name='technician'),
     # API endpoints for storing records
     path('api/patient/', views.api_add_patient, name='api_add_patient'),
     path('api/doctor/', views.api_add_doctor, name='api_add_doctor'),
@@ -30,5 +30,10 @@ urlpatterns = [
     # Pipeline & WhatsApp
     path('api/pipeline/run/', views.api_run_pipeline, name='api_run_pipeline'),
     path('api/pipeline/status/', views.api_pipeline_status, name='api_pipeline_status'),
+    path('api/hospital/feed/', views.api_hospital_feed, name='api_hospital_feed'),
+    path('api/doctor/feed/', views.api_doctor_feed, name='api_doctor_feed'),
+    path('api/technician/feed/', views.api_technician_feed, name='api_technician_feed'),
+    path('api/booking/status/', views.api_update_booking_status, name='api_update_booking_status'),
+    path('api/sample/status/', views.api_update_sample_status, name='api_update_sample_status'),
     path('api/whatsapp/send/', views.api_send_whatsapp, name='api_send_whatsapp'),
 ]
