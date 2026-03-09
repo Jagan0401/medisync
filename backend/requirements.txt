@@ -1,0 +1,29 @@
+Django>=4.2
+djangorestframework>=3.14
+
+# MongoDB
+pymongo>=4.6
+
+# Background jobs
+celery>=5.3
+redis>=5.0
+django-celery-results>=2.5
+django-celery-beat>=2.5
+
+# Messaging
+twilio>=9.0
+
+# Environment variables
+python-dotenv>=1.0
+
+# HTTP requests (for AI APIs or external integrations)
+requests>=2.31
+
+# Authentication tokens
+djangorestframework-simplejwt>=5.3
+
+# CORS handling (frontend API access)
+django-cors-headers>=4.3
+
+# Logging & utilities
+python-dateutil>=2.8

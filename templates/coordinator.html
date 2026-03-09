@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coordinator Panel | MediSynC AI</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #0099bb;
+            --primary-glow: rgba(0, 153, 187, 0.4);
+            --bg: #ffffff;
+            --sidebar-bg: rgba(255, 255, 255, 0.85);
+            --text-main: #121212;
+            --text-muted: #64748b;
+            --border: rgba(0, 0, 0, 0.06);
+            --card-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.05);
+            --transition: all 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-font-smoothing: antialiased; }
+
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: #fff;
+            color: var(--text-main);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+        }
+
+        /* --- BACKGROUND SYSTEM --- */
+        .grid-bg {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-image: 
+                linear-gradient(rgba(0, 153, 187, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 153, 187, 0.03) 1px, transparent 1px);
+            background-size: 50px 50px; z-index: -1; pointer-events: none;
+        }
+
+        .aura {
+            position: fixed; width: 800px; height: 800px;
+            background: radial-gradient(circle, rgba(0, 153, 187, 0.05) 0%, transparent 70%);
+            border-radius: 50%; z-index: -1; pointer-events: none;
+            transform: translate(-50%, -50%); transition: transform 0.1s ease-out;
+        }
+
+        /* --- SIDEBAR --- */
+        aside {
+            width: 280px; height: 100vh; background: var(--sidebar-bg);
+            backdrop-filter: blur(20px); border-right: 1px solid var(--border);
+            display: flex; flex-direction: column; padding: 30px 15px; z-index: 100;
+        }
+
+        .logo-group { line-height: 1; margin-bottom: 40px; padding-left: 15px; }
+        .logo { font-size: 1.5rem; font-weight: 800; letter-spacing: -1px; }
+        .logo span { color: var(--primary); }
+        .sub-logo { font-size: 0.7rem; font-weight: 600; color: var(--text-muted); letter-spacing: 0.5px; margin-top: 4px; }
+
+        nav { flex: 1; overflow-y: auto; padding-bottom: 20px; }
+        nav::-webkit-scrollbar { width: 4px; }
+        nav::-webkit-scrollbar-thumb { background: #eee; border-radius: 10px; }
+
+        .nav-item {
+            display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+            border-radius: 12px; color: var(--text-muted); text-decoration: none;
+            font-size: 0.82rem; font-weight: 700; margin-bottom: 2px;
+            transition: var(--transition); cursor: pointer;
+        }
+
+        .nav-item:hover { background: rgba(0, 153, 187, 0.05); color: var(--primary); }
+        .nav-item.active { background: var(--primary); color: white; box-shadow: 0 8px 20px var(--primary-glow); }
+        .nav-item svg { width: 18px; height: 18px; }
+
+        /* --- MAIN CONTENT --- */
+        main { flex: 1; height: 100vh; overflow-y: auto; padding: 40px 60px; position: relative; }
+
+        header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 40px; }
+        .page-title h1 { font-size: 2.2rem; font-weight: 800; letter-spacing: -1.5px; margin-bottom: 5px; }
+        .page-title p { font-size: 1rem; color: var(--text-muted); }
+
+        .user-pill {
+            display: flex; align-items: center; gap: 12px; padding: 8px 16px;
+            background: white; border-radius: 100px; border: 1px solid var(--border);
+            box-shadow: var(--card-shadow);
+        }
+
+        .avatar {
+            width: 32px; height: 32px; background: #f0fdfa; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 800; color: var(--primary); font-size: 0.75rem;
+        }
+
+        /* --- UI COMPONENTS --- */
+        .metrics-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; margin-bottom: 30px; }
+        .metric-card { background: white; padding: 20px; border-radius: 20px; border: 1px solid var(--border); box-shadow: var(--card-shadow); }
+        .m-label { font-size: 0.65rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+        .m-value { font-size: 1.5rem; font-weight: 800; letter-spacing: -1px; }
+
+        .content-card { background: white; border-radius: 24px; border: 1px solid var(--border); box-shadow: var(--card-shadow); margin-bottom: 30px; overflow: hidden; }
+        .card-head { padding: 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+        .card-head h3 { font-size: 1.1rem; font-weight: 800; letter-spacing: -0.5px; }
+
+        .table-wrap { width: 100%; overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; text-align: left; }
+        th { padding: 16px 24px; background: #fafafa; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+        td { padding: 18px 24px; font-size: 0.85rem; border-bottom: 1px solid var(--border); }
+        tr:last-child td { border-bottom: none; }
+
+        .status-pill { padding: 4px 10px; border-radius: 100px; font-size: 0.65rem; font-weight: 800; display: inline-flex; align-items: center; gap: 5px; }
+        .pill-active { background: #dcfce7; color: #166534; }
+        .pill-critical { background: #fee2e2; color: #991b1b; }
+        .pill-pending { background: #fef3c7; color: #92400e; }
+        .pill-delivered { background: #e0f2fe; color: #0369a1; }
+        .pill-replied { background: #f3e8ff; color: #6b21a8; }
+
+        .btn-action { padding: 8px 14px; border-radius: 10px; border: 1px solid var(--border); background: white; font-size: 0.75rem; font-weight: 700; cursor: pointer; transition: 0.2s; }
+        .btn-action:hover { background: #f8fafc; border-color: var(--primary); color: var(--primary); }
+
+        .btn-primary { background: var(--primary); color: white; padding: 10px 20px; border-radius: 12px; border: none; font-weight: 700; font-size: 0.8rem; cursor: pointer; box-shadow: 0 4px 12px var(--primary-glow); transition: 0.2s; }
+        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 15px var(--primary-glow); }
+
+        /* --- MODAL --- */
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); backdrop-filter: blur(8px); display: none; justify-content: center; align-items: center; z-index: 1000; }
+        .modal-content { background: white; width: 480px; padding: 40px; border-radius: 28px; box-shadow: 0 20px 60px rgba(0,0,0,0.15); animation: modalIn 0.4s cubic-bezier(0.23, 1, 0.32, 1); }
+        @keyframes modalIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        .modal-content h2 { margin-bottom: 20px; font-weight: 800; letter-spacing: -1px; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; font-size: 0.75rem; font-weight: 800; margin-bottom: 6px; color: var(--text-muted); text-transform: uppercase; }
+        .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid var(--border); outline: none; font-family: inherit; font-size: 0.9rem; }
+        .form-group input:focus { border-color: var(--primary); }
+        .modal-actions { display: flex; gap: 10px; margin-top: 20px; }
+
+        /* --- TAB CONTENT --- */
+        .tab-content { display: none; animation: slideUp 0.5s ease forwards; }
+        .tab-content.active { display: block; }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* --- TOAST --- */
+        #toastContainer { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 9999; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+        .toast { background: var(--text-main); color: white; padding: 12px 24px; border-radius: 12px; font-weight: 700; font-size: 0.8rem; box-shadow: 0 10px 30px rgba(0,0,0,0.2); animation: toastIn 0.4s cubic-bezier(0.23, 1, 0.32, 1) forwards; pointer-events: auto; }
+        @keyframes toastIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* --- ACTIVITY FEED --- */
+        .feed-item { display: flex; gap: 15px; padding: 15px 0; border-bottom: 1px solid var(--border); }
+        .feed-icon { width: 36px; height: 36px; border-radius: 10px; background: #f1f5f9; display: flex; align-items: center; justify-content: center; color: var(--primary); }
+        .feed-text p { font-size: 0.85rem; font-weight: 700; }
+        .feed-text span { font-size: 0.75rem; color: var(--text-muted); }
+
+        .site-footer { position: absolute; bottom: 20px; right: 40px; font-size: 0.8rem; font-weight: 700; color: #cbd5e1; pointer-events: none; }
+    </style>
+</head>
+<body>
+
+    <div class="grid-bg"></div>
+    <div class="aura" id="aura"></div>
+    <div id="toastContainer"></div>
+
+    <aside>
+        <div class="logo-group">
+            <div class="logo">Medi<span>SynC.</span></div>
+            <div class="sub-logo">by DevÉlan.</div>
+        </div>
+
+        <nav>
+            <div class="nav-item active" data-tab="dashboard" onclick="switchTab('dashboard')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                Dashboard
+            </div>
+            <div class="nav-item" data-tab="outreach" onclick="switchTab('outreach')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                Patient Outreach
+            </div>
+            <div class="nav-item" data-tab="patients" onclick="switchTab('patients')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                Patient List
+            </div>
+            <div class="nav-item" data-tab="caregap" onclick="switchTab('caregap')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                Care Gap Tasks
+            </div>
+            <div class="nav-item" data-tab="bookings" onclick="switchTab('bookings')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                Bookings
+            </div>
+            <div class="nav-item" data-tab="tech" onclick="switchTab('tech')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+                Lab Coordination
+            </div>
+            <div class="nav-item" data-tab="messagecenter" onclick="switchTab('messagecenter')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                Message Center
+            </div>
+            <div class="nav-item" data-tab="followups" onclick="switchTab('followups')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                Follow-ups
+            </div>
+            <div class="nav-item" data-tab="reports" onclick="switchTab('reports')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                Reports
+            </div>
+            <div class="nav-item" data-tab="profile" onclick="switchTab('profile')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                Settings
+            </div>
+            <div class="nav-item" data-tab="audit" onclick="switchTab('audit')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                Activity Logs
+            </div>
+        </nav>
+    </aside>
+
+    <main>
+        <header>
+            <div class="page-title">
+                <h1 id="headerTitle">Dashboard</h1>
+                <p id="headerSubtitle">Engagement overview and daily task tracking</p>
+            </div>
+            <div class="user-pill">
+                <div class="avatar">{{ coordinator_initials }}</div>
+                <div style="font-size: 0.85rem; font-weight: 800;">{{ coordinator_name }}</div>
+                <a href="{% url 'accounts:logout' %}" style="margin-left: 8px; color: var(--text-muted); font-size: 0.75rem; font-weight: 700; text-decoration: none;">Logout</a>
+            </div>
+        </header>
+
+        <!-- DASHBOARD -->
+        <div id="dashboard" class="tab-content active">
+            <div class="metrics-row">
+                <div class="metric-card"><div class="m-label">Assigned Patients</div><div class="m-value">{{ assigned_patients }}</div></div>
+                <div class="metric-card"><div class="m-label">Gap Alerts</div><div class="m-value">{{ gap_alerts }}</div></div>
+                <div class="metric-card"><div class="m-label">Msgs Sent Today</div><div class="m-value">{{ msgs_sent }}</div></div>
+                <div class="metric-card"><div class="m-label">Booked Slots</div><div class="m-value">{{ booked_slots }}</div></div>
+                <div class="metric-card"><div class="m-label">Follow-ups</div><div class="m-value">{{ followup_count }}</div></div>
+            </div>
+            <div class="dash-grid">
+                <div class="content-card">
+                    <div class="card-head"><h3>Live Operations Feed</h3></div>
+                    <div style="padding: 24px;">
+                        {% for item in feed %}
+                        <div class="feed-item"><div class="feed-icon">{{ item.icon }}</div><div class="feed-text"><p>{{ item.text }}</p><span>{{ item.time }}</span></div></div>
+                        {% empty %}
+                        <div style="padding:20px; color:var(--text-muted);">No recent activity.</div>
+                        {% endfor %}
+                    </div>
+                </div>
+                <div class="content-card">
+                    <div class="card-head"><h3>Technician Status</h3></div>
+                    <div style="padding: 24px;">
+                        {% for t in technicians %}
+                        <div style="display:flex; justify-content:space-between; {% if not forloop.last %}margin-bottom:15px;{% endif %}"><span style="font-size:0.8rem; font-weight:700;">{{ t.name }} ({{ t.area }})</span><span class="status-pill pill-active">{{ t.jobs }} Jobs</span></div>
+                        {% empty %}
+                        <div style="color:var(--text-muted);">No technicians.</div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PATIENT OUTREACH -->
+        <div id="outreach" class="tab-content">
+            <div class="content-card">
+                <div class="card-head"><h3>Automated Outreach Monitor</h3></div>
+                <div class="table-wrap">
+                    <table id="outreachTable">
+                        <thead><tr><th>Patient</th><th>Disease</th><th>Message</th><th>Channel</th><th>Status</th><th>Actions</th></tr></thead>
+                        <tbody>
+                            {% for m in messages %}
+                            <tr><td style="font-weight:700;">{{ m.patient }}</td><td>{{ m.disease }}</td><td>{{ m.message }}</td><td>{{ m.channel }}</td><td>{% if m.status == 'Delivered' %}<span class="status-pill pill-delivered">Delivered</span>{% elif m.status == 'Replied' %}<span class="status-pill pill-replied">Replied</span>{% elif m.status == 'Failed' %}<span class="status-pill pill-critical">Failed</span>{% else %}{{ m.status }}{% endif %}</td><td>{% if m.status == 'Failed' %}<button class="btn-primary" style="padding:6px 12px; font-size:0.7rem;" onclick="retryMsg(this)">Retry Now</button>{% elif m.status == 'Replied' %}<button class="btn-action" onclick="openMsgModal('{{ m.patient }}')">Chat</button>{% else %}<button class="btn-action" onclick="showToast('Resending...')">Retry</button>{% endif %}</td></tr>
+                            {% empty %}
+                            <tr><td colspan="6" style="color:var(--text-muted);">No outreach records.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- PATIENT LIST -->
+        <div id="patients" class="tab-content">
+            <div class="content-card">
+                <div class="card-head"><h3>Assigned Patient Records</h3></div>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>ID</th><th>Name</th><th>Disease</th><th>Doctor</th><th>Risk</th><th>Actions</th></tr></thead>
+                        <tbody>
+                            {% for p in patients %}
+                            <tr><td>{{ p.patient_id }}</td><td style="font-weight:700;">{{ p.name }}</td><td>{{ p.disease }}</td><td>{{ p.doctor }}</td><td>{% if p.risk == 'Critical' %}<span class="status-pill pill-critical">Critical</span>{% elif p.risk == 'High' %}<span class="status-pill pill-critical">High</span>{% elif p.risk == 'Medium' %}<span class="status-pill pill-pending">Medium</span>{% else %}Low{% endif %}</td><td><button class="btn-action" onclick="viewPatient('{{ p.name }}', '{{ p.disease }}')">View</button></td></tr>
+                            {% empty %}
+                            <tr><td colspan="6" style="color:var(--text-muted);">No patients.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- CARE GAP TASKS -->
+        <div id="caregap" class="tab-content">
+            <div class="content-card">
+                <div class="card-head"><h3>Pending Care Gap Tasks</h3></div>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>Patient</th><th>Test</th><th>Overdue</th><th>Risk</th><th>Status</th><th>Actions</th></tr></thead>
+                        <tbody>
+                            {% for g in care_gaps %}
+                            <tr><td style="font-weight:700;">{{ g.patient }}</td><td>{{ g.test }}</td><td>{{ g.overdue }}</td><td>{{ g.risk }}</td><td>{{ g.status }}</td><td>{% if g.status == 'Closed' %}<button class="btn-action" disabled>Closed</button>{% elif g.risk == 'Critical' %}<button class="btn-action" onclick="markContacted(this)">Mark Contacted</button>{% else %}<button class="btn-primary" onclick="showToast('AI Reminder Generated')">Send Reminder</button>{% endif %}</td></tr>
+                            {% empty %}
+                            <tr><td colspan="6" style="color:var(--text-muted);">No care gap tasks.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- BOOKINGS -->
+        <div id="bookings" class="tab-content">
+            <div class="content-card">
+                <div class="card-head"><h3>Lab Test Scheduling</h3><button class="btn-primary" onclick="openModal('bookingModal')">+ Create Booking</button></div>
+                <div class="table-wrap">
+                    <table id="bookingTable">
+                        <thead><tr><th>Patient</th><th>Test</th><th>Date</th><th>Technician</th><th>Status</th></tr></thead>
+                        <tbody>
+                            {% for b in bookings %}
+                            <tr><td>{{ b.patient }}</td><td>{{ b.test }}</td><td>{{ b.date }}</td><td>{{ b.technician }}</td><td>{% if b.status == 'Completed' %}<span class="status-pill pill-active">Completed</span>{% else %}{{ b.status }}{% endif %}</td></tr>
+                            {% empty %}
+                            <tr><td colspan="5" style="color:var(--text-muted);">No bookings.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- LAB TECH COORDINATION -->
+        <div id="tech" class="tab-content">
+            <div class="content-card">
+                <div class="card-head"><h3>Technician Job Assignment</h3></div>
+                <div class="table-wrap">
+                    <table id="techTable">
+                        <thead><tr><th>Technician</th><th>Area</th><th>Assigned Jobs</th><th>Status</th><th>Actions</th></tr></thead>
+                        <tbody>
+                            {% for t in technicians %}
+                            <tr><td style="font-weight:700;">{{ t.name }}</td><td>{{ t.area }}</td><td>{{ t.jobs }}</td><td>{{ t.status }}</td><td><button class="btn-action" onclick="openAssignModal('{{ t.name }}')">Assign Job</button></td></tr>
+                            {% empty %}
+                            <tr><td colspan="5" style="color:var(--text-muted);">No technicians.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- FOLLOW-UPS -->
+        <div id="followups" class="tab-content">
+            <div class="content-card">
+                <div class="card-head"><h3>Pending Follow-up Tasks</h3><button class="btn-primary" onclick="openModal('followupModal')">+ Create Task</button></div>
+                <div class="table-wrap">
+                    <table id="followTable">
+                        <thead><tr><th>Patient</th><th>Task</th><th>Due Date</th><th>Status</th></tr></thead>
+                        <tbody>
+                            {% for f in followups %}
+                            <tr><td style="font-weight:700;">{{ f.patient }}</td><td>{{ f.task }}</td><td>{{ f.due_date }}</td><td>{% if f.status == 'Completed' %}<span class="status-pill pill-active">Completed</span>{% else %}<span class="status-pill pill-pending">{{ f.status }}</span>{% endif %}</td></tr>
+                            {% empty %}
+                            <tr><td colspan="4" style="color:var(--text-muted);">No follow-ups.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- OTHER TABS -->
+        <div id="messagecenter" class="tab-content">
+             <div class="content-card"><div class="card-head"><h3>Centralized Message Center</h3></div><div style="padding:40px; color:var(--text-muted);">Unified inbox for WhatsApp and SMS activity...</div></div>
+        </div>
+        <div id="reports" class="tab-content">
+             <div class="content-card">
+                <div class="card-head"><h3>Operational Reports</h3></div>
+                <div style="padding:40px; display:grid; grid-template-columns: repeat(3, 1fr); gap:20px;">
+                    <button class="btn-primary" onclick="showToast('Exporting Outreach CSV...')">Outreach Summary</button>
+                    <button class="btn-primary" onclick="showToast('Exporting Booking PDF...')">Booking Report</button>
+                    <button class="btn-primary" onclick="showToast('Exporting Care Gap Excel...')">Care Gap Analysis</button>
+                </div>
+             </div>
+        </div>
+        <div id="profile" class="tab-content">
+             <div class="content-card"><div class="card-head"><h3>Profile Settings</h3></div><div style="padding:40px;">Manage personal information and notification preferences...</div></div>
+        </div>
+        <div id="audit" class="tab-content">
+            <div class="content-card">
+                <div class="card-head"><h3>System Activity Trail</h3></div>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>Action</th><th>Target</th><th>Timestamp</th></tr></thead>
+                        <tbody>
+                            {% for a in audit_logs %}
+                            <tr><td>{{ a.action }}</td><td>{{ a.target }}</td><td>{{ a.time }}</td></tr>
+                            {% empty %}
+                            <tr><td colspan="3" style="color:var(--text-muted);">No audit logs.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="site-footer">DevÉlan</div>
+    </main>
+
+    <!-- MODALS -->
+    <!-- Messaging Modal -->
+    <div class="modal-overlay" id="msgModal">
+        <div class="modal-content">
+            <h2 id="msgHeader">Send Message</h2>
+            <div class="form-group"><label>Patient</label><input type="text" id="msgTarget" readonly></div>
+            <div class="form-group"><label>Channel</label><select><option>WhatsApp</option><option>SMS</option></select></div>
+            <div class="form-group"><label>Message Text</label><textarea id="msgBody" rows="4" placeholder="Type message..."></textarea></div>
+            <div class="modal-actions"><button class="btn-primary" onclick="submitMessage()">Send via AI Gateway</button><button class="btn-action" onclick="closeModal('msgModal')">Cancel</button></div>
+        </div>
+    </div>
+
+    <!-- Booking Modal -->
+    <div class="modal-overlay" id="bookingModal">
+        <div class="modal-content">
+            <h2>Create Home Collection Booking</h2>
+            <div class="form-group"><label>Patient Name</label><input type="text" id="bName" placeholder="Search patient..."></div>
+            <div class="form-group"><label>Test Type</label><input type="text" id="bTest" placeholder="e.g. HbA1c"></div>
+            <div class="form-group"><label>Collection Date</label><input type="date" id="bDate"></div>
+            <div class="form-group"><label>Assign Technician</label>
+                <select id="bTech">
+                    <option>Arjun Patel (South)</option>
+                    <option>Rahul Singh (North)</option>
+                    <option>Ankit Kumar (East)</option>
+                </select>
+            </div>
+            <div class="modal-actions"><button class="btn-primary" onclick="submitBooking()">Schedule Slot</button><button class="btn-action" onclick="closeModal('bookingModal')">Cancel</button></div>
+        </div>
+    </div>
+
+    <!-- Assign Tech Modal -->
+    <div class="modal-overlay" id="assignModal">
+        <div class="modal-content">
+            <h2 id="assignTitle">Assign Jobs</h2>
+            <div class="form-group"><label>Patient Group/ID</label><input type="text" id="assignTarget" placeholder="e.g. CKD_BATCH_1"></div>
+            <div class="form-group"><label>Collection Window</label><select><option>Morning (07:00 - 11:00)</option><option>Evening (16:00 - 20:00)</option></select></div>
+            <div class="modal-actions"><button class="btn-primary" onclick="confirmAssign()">Confirm Assignment</button><button class="btn-action" onclick="closeModal('assignModal')">Cancel</button></div>
+        </div>
+    </div>
+
+    <!-- Followup Modal -->
+    <div class="modal-overlay" id="followupModal">
+        <div class="modal-content">
+            <h2>Add Follow-up Task</h2>
+            <div class="form-group"><label>Patient</label><input type="text" id="fName"></div>
+            <div class="form-group"><label>Task Description</label><textarea id="fTask" rows="2"></textarea></div>
+            <div class="form-group"><label>Due Date</label><input type="date" id="fDate"></div>
+            <div class="modal-actions"><button class="btn-primary" onclick="submitFollowup()">Add Task</button><button class="btn-action" onclick="closeModal('followupModal')">Cancel</button></div>
+        </div>
+    </div>
+
+    <!-- Patient Detail Modal -->
+    <div class="modal-overlay" id="viewPatientModal">
+        <div class="modal-content" style="width:550px;">
+            <h2 id="vpName">Patient Profile</h2>
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px; margin-bottom:20px;">
+                <div class="metric-card" style="padding:15px;">
+                    <div class="m-label" style="font-size:0.6rem;">Diagnosis</div>
+                    <p style="font-size:0.8rem; font-weight:700;" id="vpDisease">Diabetes</p>
+                </div>
+                <div class="metric-card" style="padding:15px;">
+                    <div class="m-label" style="font-size:0.6rem;">Risk Score</div>
+                    <p style="font-size:0.8rem; font-weight:700;">8.4 / 10</p>
+                </div>
+            </div>
+            <div class="content-card" style="margin-bottom:20px;">
+                <div class="card-head" style="padding:12px 20px;"><h3>Outreach History</h3></div>
+                <div style="padding:15px; font-size:0.75rem; color:#666; line-height:1.8;">
+                    • 12-Mar: WhatsApp Sent (Recall) - Delivered<br>
+                    • 01-Mar: WhatsApp Sent (Monthly Monitor) - Replied<br>
+                    • 15-Feb: SMS Sent (Lab result available) - Delivered
+                </div>
+            </div>
+            <div class="modal-actions"><button class="btn-primary" onclick="closeModal('viewPatientModal')">Close</button></div>
+        </div>
+    </div>
+
+    <script>
+        // Aura Logic
+        const aura = document.getElementById('aura');
+        document.addEventListener('mousemove', (e) => {
+            aura.style.left = e.clientX + 'px';
+            aura.style.top = e.clientY + 'px';
+        });
+
+        // Toast System
+        function showToast(message) {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.innerText = message;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => toast.remove(), 400);
+            }, 3000);
+        }
+
+        // Tab Switching
+        function switchTab(tabId) {
+            document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
+            const activeItem = document.querySelector(`.nav-item[data-tab="${tabId}"]`);
+            if (activeItem) activeItem.classList.add('active');
+
+            const titles = {
+                'dashboard': ['Dashboard', 'Engagement overview and daily task tracking'],
+                'outreach': ['Patient Outreach', 'Monitor and retry automated communications'],
+                'patients': ['Patient List', 'Access assigned records and engagement history'],
+                'caregap': ['Care Gap Tasks', 'Manage overdue monitoring workflows'],
+                'bookings': ['Lab Bookings', 'Schedule and track home collection slots'],
+                'tech': ['Lab Coordination', 'Manage technician job distribution'],
+                'messagecenter': ['Message Center', 'Centralized communication dashboard'],
+                'followups': ['Follow-up Tasks', 'Track coordination and reminder deadlines'],
+                'reports': ['Reports', 'Operational data and operational analytics'],
+                'profile': ['Settings', 'Personal profile and preference configuration'],
+                'audit': ['Activity Logs', 'Operational audit trail of actions taken']
+            };
+
+            if (titles[tabId]) {
+                document.getElementById('headerTitle').innerText = titles[tabId][0];
+                document.getElementById('headerSubtitle').innerText = titles[tabId][1];
+            }
+
+            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+            const targetTab = document.getElementById(tabId);
+            if (targetTab) targetTab.classList.add('active');
+        }
+
+        // Modals
+        function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+        function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+
+        // --- COORDINATOR ACTIONS ---
+        function retryMsg(btn) {
+            btn.parentElement.parentElement.cells[4].innerHTML = '<span class="status-pill pill-delivered">Delivered</span>';
+            showToast("Message resending through Twilio Gateway...");
+        }
+
+        function openMsgModal(name) {
+            document.getElementById('msgTarget').value = name;
+            openModal('msgModal');
+        }
+
+        function submitMessage() {
+            const body = document.getElementById('msgBody').value;
+            const patient = document.getElementById('msgTarget').value;
+            if(!body) return;
+            const fd = new FormData();
+            fd.append('patient', patient);
+            fd.append('channel', 'WhatsApp');
+            fd.append('message', body);
+            fetch("{% url 'accounts:api_send_message' %}", {method:'POST', headers:{'X-CSRFToken':'{{ csrf_token }}'}, body:fd});
+            showToast(`Custom message sent to ${patient}`);
+            closeModal('msgModal');
+        }
+
+        function viewPatient(name, disease) {
+            document.getElementById('vpName').innerText = name;
+            document.getElementById('vpDisease').innerText = disease;
+            openModal('viewPatientModal');
+        }
+
+        function markContacted(btn) {
+            btn.parentElement.parentElement.cells[4].innerText = 'Contacted';
+            btn.disabled = true;
+            btn.innerText = 'Updated';
+            showToast("Task status updated to CONTACTED.");
+        }
+
+        function submitBooking() {
+            const name = document.getElementById('bName').value;
+            const test = document.getElementById('bTest').value;
+            const date = document.getElementById('bDate').value;
+            const tech = document.getElementById('bTech').value;
+            if(!name || !date) return;
+            const fd = new FormData();
+            fd.append('patient', name);
+            fd.append('test', test);
+            fd.append('date', date);
+            fd.append('technician', tech);
+            fetch("{% url 'accounts:api_add_booking' %}", {method:'POST', headers:{'X-CSRFToken':'{{ csrf_token }}'}, body:fd});
+            const table = document.getElementById('bookingTable').getElementsByTagName('tbody')[0];
+            const newRow = table.insertRow(0);
+            newRow.innerHTML = `<td>${name}</td><td>${test}</td><td>${date}</td><td>${tech}</td><td>Scheduled</td>`;
+            showToast(`Collection booked for ${name} on ${date}`);
+            closeModal('bookingModal');
+        }
+
+        let currentTech = "";
+        function openAssignModal(tech) {
+            currentTech = tech;
+            document.getElementById('assignTitle').innerText = `Assign Jobs to ${tech}`;
+            openModal('assignModal');
+        }
+
+        function confirmAssign() {
+            const target = document.getElementById('assignTarget').value;
+            if(!target) return;
+            showToast(`Job ${target} assigned to ${currentTech}`);
+            closeModal('assignModal');
+        }
+
+        function submitFollowup() {
+            const name = document.getElementById('fName').value;
+            const task = document.getElementById('fTask').value;
+            const date = document.getElementById('fDate').value;
+            if(!name || !date) return;
+            const fd = new FormData();
+            fd.append('patient', name);
+            fd.append('task', task);
+            fd.append('due_date', date);
+            fetch("{% url 'accounts:api_add_followup' %}", {method:'POST', headers:{'X-CSRFToken':'{{ csrf_token }}'}, body:fd});
+            const table = document.getElementById('followTable').getElementsByTagName('tbody')[0];
+            const newRow = table.insertRow(0);
+            newRow.innerHTML = `<td style="font-weight:700;">${name}</td><td>${task}</td><td>${date}</td><td><span class="status-pill pill-pending">Pending</span></td>`;
+            showToast("Follow-up task added to queue.");
+            closeModal('followupModal');
+        }
+    </script>
+</body>
+</html>
