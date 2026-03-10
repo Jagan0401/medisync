@@ -258,16 +258,17 @@ class Command(BaseCommand):
             patient_phone = p.get('phone', phone)
             tier = p['risk']
 
-            # Build English base message with language selection menu
+            # Build health alert message with 3-option interactive menu
             message_body = (
                 f"🏥 *MediSynC Health Alert*\n\n"
                 f"Dear {p['name']},\n\n"
                 f"Your recent {p.get('last_test', 'test')} result ({p.get('last_result', 'N/A')}) "
                 f"indicates that your {p.get('disease', 'condition')} requires attention.\n\n"
                 f"Risk Level: *{tier}*\n\n"
-                f"Please select your preferred language to continue:\n\n"
-                f"{LANGUAGE_MENU_TEXT}\n\n"
-                f"Reply with the number (1-6) to continue in your preferred language."
+                f"📋 Please reply with a number:\n"
+                f"1️⃣ Book Appointment\n"
+                f"2️⃣ Remind Me Later\n"
+                f"3️⃣ Choose Language"
             )
 
             self.stdout.write(
@@ -276,10 +277,10 @@ class Command(BaseCommand):
             )
             self.stdout.write(f'  📱 Phone: {patient_phone}')
 
-            # Mark patient as awaiting language selection
+            # Clear any old whatsapp_state so patient enters main menu flow
             db.patients.update_one(
                 {'patient_id': p['patient_id']},
-                {'$set': {'whatsapp_state': 'awaiting_language'}}
+                {'$set': {'whatsapp_state': ''}}
             )
 
             # Send via Twilio

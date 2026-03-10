@@ -1,12 +1,13 @@
 import logging
+import os
 from datetime import datetime, timedelta
 
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST
 
 from config.db import db
 from integrations.twilio_service import send_whatsapp_message
+from services.message_generator import translate_message
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +22,20 @@ LANGUAGE_NAMES = {
 }
 
 
-def _main_menu_text(patient_name):
-    """Return the main 3-option menu text."""
-    return (
+def _translate(text, lang_code):
+    """Translate text if patient language is not English."""
+    if not lang_code or lang_code == 'en':
+        return text
+    try:
+        return translate_message(text, lang_code)
+    except Exception as e:
+        logger.error('Translation failed for %s: %s', lang_code, e)
+        return text
+
+
+def _main_menu_text(patient_name, lang_code='en'):
+    """Return the main 3-option menu text in the patient's language."""
+    text = (
         f"Hi {patient_name} 👋\n\n"
         f"How can we help you today?\n\n"
         f"Please reply with a number:\n"
@@ -31,12 +43,13 @@ def _main_menu_text(patient_name):
         f"2️⃣ Remind Me Later\n"
         f"3️⃣ Choose Language"
     )
+    return _translate(text, lang_code)
 
 
 def _language_menu_text():
-    """Return the language selection menu text."""
+    """Return the language selection menu text (always multilingual)."""
     return (
-        "🌐 Please choose your language:\n\n"
+        "🌐 Please choose your language / மொழியைத் தேர்ந்தெடுக்கவும் / भाषा चुनें:\n\n"
         "1️⃣ English\n"
         "2️⃣ தமிழ் (Tamil)\n"
         "3️⃣ हिंदी (Hindi)\n"
@@ -46,12 +59,25 @@ def _language_menu_text():
     )
 
 
+def _twiml_empty():
+    """Return an empty TwiML response so Twilio gets a valid 200 XML reply."""
+    return HttpResponse(
+        '<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
+        content_type='text/xml',
+    )
+
+
 def _send_and_log(phone, reply, patient_name, patient_id, patient_lang):
     """Send a WhatsApp reply and log it to MongoDB."""
+    status = 'Delivered'
+    error_msg = ''
     try:
-        send_whatsapp_message(phone, reply)
+        sid = send_whatsapp_message(phone, reply)
+        logger.info('Reply sent to %s (sid=%s)', phone, sid)
     except Exception as e:
-        logger.error('Twilio send error: %s', e)
+        status = 'Failed'
+        error_msg = str(e)[:200]
+        logger.error('TWILIO SEND FAILED to %s: %s', phone, e)
 
     db.messages.insert_one({
         'patient': patient_name,
@@ -59,9 +85,28 @@ def _send_and_log(phone, reply, patient_name, patient_id, patient_lang):
         'channel': 'WhatsApp',
         'message': reply[:300],
         'language': patient_lang,
-        'status': 'Delivered',
+        'status': status,
+        'error': error_msg,
         'direction': 'outbound',
         'sent_at': datetime.utcnow().isoformat(),
+    })
+
+
+def whatsapp_webhook_test(request):
+    """Diagnostic endpoint to verify webhook connectivity and config."""
+    from_number = os.environ.get('TWILIO_WHATSAPP_FROM', 'whatsapp:+14155238886')
+    has_sid = bool(os.environ.get('TWILIO_ACCOUNT_SID'))
+    has_token = bool(os.environ.get('TWILIO_AUTH_TOKEN'))
+    try:
+        patient_count = db.patients.estimated_document_count()
+    except Exception:
+        patient_count = 'error'
+    return JsonResponse({
+        'status': 'ok',
+        'service': 'MediSynC WhatsApp Webhook',
+        'twilio_from': from_number,
+        'twilio_credentials': has_sid and has_token,
+        'mongodb_patients': patient_count,
     })
 
 
@@ -76,18 +121,23 @@ def whatsapp_webhook(request):
 
     States: '' (default/menu) | 'awaiting_language'
     """
+    if request.method == 'GET':
+        return JsonResponse({'status': 'ok', 'message': 'MediSynC WhatsApp webhook is alive'})
+
     if request.method != 'POST':
         return HttpResponse('Method not allowed', status=405)
 
     body = request.POST.get('Body', '').strip()
     phone = request.POST.get('From', '').replace('whatsapp:', '')
 
-    if not phone:
-        return HttpResponse('Missing sender', status=400)
-    if not body:
-        return HttpResponse('OK', status=200)
+    logger.info('=== WEBHOOK HIT === Method=%s From=%s Body=%s', request.method, phone, body)
+    # Also print to stdout so it always shows in the terminal
+    print(f'[WEBHOOK] From={phone} Body={body}')
 
-    logger.info('WhatsApp from %s: %s', phone, body)
+    if not phone:
+        return _twiml_empty()
+    if not body:
+        return _twiml_empty()
 
     # ── Find patient in MongoDB ──
     phone_regex = {'$regex': phone[-10:]}
@@ -109,19 +159,23 @@ def whatsapp_webhook(request):
         )
 
     if not patient:
+        logger.warning('No patient found for phone %s', phone)
+        print(f'[WEBHOOK] NO PATIENT FOUND for {phone}')
         try:
             send_whatsapp_message(
                 phone,
                 'Sorry, we could not find your patient record. Please contact the clinic.',
             )
         except Exception as e:
-            logger.error('Twilio send error: %s', e)
-        return HttpResponse('OK')
+            logger.error('Twilio send error (no patient): %s', e)
+        return _twiml_empty()
 
     patient_id = patient.get('patient_id', '')
     patient_name = patient.get('name', 'Patient')
     whatsapp_state = patient.get('whatsapp_state', '')
     patient_lang = patient.get('preferred_language', 'en')
+
+    logger.info('Patient found: %s (id=%s, state=%s, lang=%s)', patient_name, patient_id, whatsapp_state, patient_lang)
 
     # Log incoming message
     db.messages.insert_one({
@@ -157,10 +211,10 @@ def whatsapp_webhook(request):
                 )
                 patient_lang = chosen_code
 
-                reply = (
-                    f"✅ Language set to {chosen_name}!\n\n"
-                    + _main_menu_text(patient_name)
-                )
+                reply = _translate(
+                    f"\u2705 Language set to {chosen_name}!\n\n",
+                    chosen_code,
+                ) + _main_menu_text(patient_name, chosen_code)
 
                 db.activity_feed.insert_one({
                     'scope': 'technician', 'icon': '🌐',
@@ -193,7 +247,7 @@ def whatsapp_webhook(request):
                 'created_at': datetime.utcnow().isoformat(),
             })
 
-            reply = (
+            reply = _translate(
                 f"✅ Appointment Booked!\n\n"
                 f"📅 Date: {appointment_date}\n"
                 f"🏥 Test: {test}\n"
@@ -203,7 +257,8 @@ def whatsapp_webhook(request):
                 f"Reply with a number:\n"
                 f"1️⃣ Book Another Appointment\n"
                 f"2️⃣ Remind Me Later\n"
-                f"3️⃣ Choose Language"
+                f"3️⃣ Choose Language",
+                patient_lang,
             )
 
             db.activity_feed.insert_one({
@@ -234,14 +289,15 @@ def whatsapp_webhook(request):
                 {'$set': {'remind_date': tomorrow}},
             )
 
-            reply = (
+            reply = _translate(
                 f"⏰ Got it, {patient_name}!\n\n"
                 f"We will remind you tomorrow ({tomorrow}).\n"
                 f"Take care! 🙏\n\n"
                 f"You will receive a message tomorrow with these options:\n"
                 f"1️⃣ Book Appointment\n"
                 f"2️⃣ Remind Me Later\n"
-                f"3️⃣ Choose Language"
+                f"3️⃣ Choose Language",
+                patient_lang,
             )
 
             db.activity_feed.insert_one({
@@ -264,13 +320,15 @@ def whatsapp_webhook(request):
         # ║ ANY OTHER MESSAGE — show the main menu                    ║
         # ╚════════════════════════════════════════════════════════════╝
         else:
-            reply = _main_menu_text(patient_name)
+            reply = _main_menu_text(patient_name, patient_lang)
 
     except Exception as e:
         logger.exception('Error processing WhatsApp message from %s: %s', phone, e)
-        reply = _main_menu_text(patient_name)
+        reply = _main_menu_text(patient_name, patient_lang)
 
     # Always send a reply
+    logger.info('Sending reply to %s: %s', phone, reply[:100])
+    print(f'[WEBHOOK] Replying to {phone}: {reply[:80]}')
     _send_and_log(phone, reply, patient_name, patient_id, patient_lang)
 
-    return HttpResponse('OK')
+    return _twiml_empty()
