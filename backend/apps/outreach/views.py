@@ -74,10 +74,13 @@ def _send_and_log(phone, reply, patient_name, patient_id, patient_lang):
     try:
         sid = send_whatsapp_message(phone, reply)
         logger.info('Reply sent to %s (sid=%s)', phone, sid)
+        print(f'[SEND OK] Message sent to {phone} (sid={sid})')
     except Exception as e:
         status = 'Failed'
         error_msg = str(e)[:200]
         logger.error('TWILIO SEND FAILED to %s: %s', phone, e)
+        print(f'\n*** TWILIO SEND FAILED to {phone} ***')
+        print(f'*** Error: {e} ***\n')
 
     db.messages.insert_one({
         'patient': patient_name,

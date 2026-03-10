@@ -55,6 +55,7 @@ RESULTS_BY_DISEASE = {
     'Anemia':         {'Critical': '6.0', 'High': '8.5', 'Medium': '10.0', 'Low': '13.5'},
 }
 DEFAULT_PHONE = '+916385438323'
+SECOND_PHONE = '+918056289009'
 
 # Language menu shown to the patient (6 options)
 LANGUAGE_MENU = {
@@ -153,8 +154,34 @@ class Command(BaseCommand):
                 f'Overdue: {overdue:3d}d'
             )
 
+        # Also generate one high-risk patient for the second phone number
+        second_disease = random.choice(DISEASES)
+        second_result = RESULTS_BY_DISEASE[second_disease]['High']
+        second_patient = {
+            'patient_id': f'P{next_num + count:05d}',
+            'name': f'{random.choice(FIRST_NAMES)} {random.choice(LAST_NAMES)}',
+            'hospital': random.choice(HOSPITALS),
+            'disease': second_disease,
+            'last_test': TESTS_BY_DISEASE.get(second_disease, 'General Checkup'),
+            'last_result': second_result,
+            'risk': 'High',
+            'care_gap': 'Open',
+            'age': random.randint(30, 65),
+            'phone': SECOND_PHONE,
+            'channel': 'WhatsApp',
+            'doctor': random.choice(DOCTORS),
+            'overdue_days': random.randint(60, 200),
+            'created_at': now.isoformat(),
+        }
+        new_patients.append(second_patient)
+        self.stdout.write(
+            f'  + {second_patient["patient_id"]}  {second_patient["name"]:25s}  '
+            f'{second_disease:15s}  Risk: High      Result: {second_result:10s}  '
+            f'Overdue: {second_patient["overdue_days"]:3d}d  [SECOND PHONE]'
+        )
+
         db.patients.insert_many(new_patients)
-        self.stdout.write(self.style.SUCCESS(f'  ✓ {count} patients added to database'))
+        self.stdout.write(self.style.SUCCESS(f'  ✓ {count + 1} patients added to database'))
 
         # ═══════════════════════════════════════════════════════════
         # STEP 2: Risk Analysis on new patients
@@ -239,22 +266,41 @@ class Command(BaseCommand):
         self.stdout.write('')
 
         # ═══════════════════════════════════════════════════════════
-        # STEP 4: Send WhatsApp to HIGHEST-RISK patient only
-        #         English message + language selection menu
+        # STEP 4: Send WhatsApp to target patients
+        #         English message + 3-option interactive menu
         # ═══════════════════════════════════════════════════════════
         self.stdout.write(self.style.HTTP_INFO(
-            '\n── STEP 4: Sending WhatsApp to highest-risk patient ──'
+            '\n── STEP 4: Sending WhatsApp to target patients ──'
         ))
 
-        # Pick the single highest-risk patient
-        highest_risk_patient = top_10[0] if top_10 else None
+        # Show daily message usage (Twilio free tier = 50/day)
+        today_str = now.strftime('%Y-%m-%d')
+        msgs_sent_today = db.messages.count_documents({
+            'direction': 'outbound',
+            'sent_at': {'$gte': today_str},
+        })
+        remaining = max(0, 50 - msgs_sent_today)
+        self.stdout.write(f'  📊 Messages sent today: {msgs_sent_today}/50 (≈{remaining} remaining)')
+        if remaining < 5 and not dry_run:
+            self.stdout.write(self.style.WARNING(
+                '  ⚠ Low message budget! Consider using --dry-run to avoid hitting the limit.'
+            ))
+
+        # Build list of patients to message: highest-risk + second phone patient
+        targets = []
+        if top_10:
+            targets.append(top_10[0])
+        # Add second-phone patient if not already in targets
+        if second_patient.get('patient_id') not in [t.get('patient_id') for t in targets]:
+            targets.append(second_patient)
+
         sent_count = 0
         failed_count = 0
 
-        if not highest_risk_patient:
+        if not targets:
             self.stdout.write(self.style.WARNING('  ⚠ No patients to message'))
-        else:
-            p = highest_risk_patient
+
+        for p in targets:
             patient_phone = p.get('phone', phone)
             tier = p['risk']
 
@@ -292,7 +338,7 @@ class Command(BaseCommand):
                     from integrations.twilio_service import send_whatsapp_message
                     twilio_sid = send_whatsapp_message(patient_phone, message_body)
                     delivery_status = 'Delivered'
-                    sent_count = 1
+                    sent_count += 1
                     self.stdout.write(
                         self.style.SUCCESS(
                             f'  ✓ SENT to {p["name"]} ({patient_phone}) '
@@ -301,13 +347,13 @@ class Command(BaseCommand):
                     )
                 except Exception as e:
                     delivery_status = 'Failed'
-                    failed_count = 1
+                    failed_count += 1
                     self.stdout.write(
                         self.style.ERROR(f'  ✗ FAILED {p["name"]}: {e}')
                     )
             else:
                 delivery_status = 'Simulated'
-                sent_count = 1
+                sent_count += 1
                 self.stdout.write(
                     f'  📨 [DRY] {p["name"]} ({patient_phone}) [English + Language Menu]'
                 )
@@ -339,22 +385,22 @@ class Command(BaseCommand):
         self.stdout.write(self.style.HTTP_INFO('\n── STEP 5: Updating activity feed & audit logs ──'))
 
         feed_time = now.strftime('%Y-%m-%d %H:%M')
-        target_name = highest_risk_patient['name'] if highest_risk_patient else 'N/A'
-        target_risk = highest_risk_patient['risk'] if highest_risk_patient else 'N/A'
+        target_names = ', '.join(p['name'] for p in targets) if targets else 'N/A'
+        target_risks = ', '.join(p['risk'] for p in targets) if targets else 'N/A'
 
         feed_entries = [
-            {'scope': 'superadmin', 'icon': '🚀', 'text': f'Pipeline: {count} new patients added and analyzed', 'time': feed_time, 'created_at': now},
-            {'scope': 'superadmin', 'icon': '🤖', 'text': f'AI WhatsApp sent to highest-risk patient: {target_name} ({target_risk})', 'time': feed_time, 'created_at': now},
-            {'scope': 'hospital_admin', 'icon': '🔬', 'text': f'Pipeline processed {count} new patients — Critical:{len(categorized["Critical"])} High:{len(categorized["High"])}', 'time': feed_time, 'created_at': now},
-            {'scope': 'doctor', 'icon': '📋', 'text': f'{count} new patients analyzed — Critical:{len(categorized["Critical"])} High:{len(categorized["High"])}', 'time': feed_time, 'created_at': now},
-            {'scope': 'technician', 'icon': '📊', 'text': f'Pipeline: {count} patients added — awaiting WhatsApp bookings', 'time': feed_time, 'created_at': now},
+            {'scope': 'superadmin', 'icon': '🚀', 'text': f'Pipeline: {count + 1} new patients added and analyzed', 'time': feed_time, 'created_at': now},
+            {'scope': 'superadmin', 'icon': '🤖', 'text': f'AI WhatsApp sent to {len(targets)} patients: {target_names}', 'time': feed_time, 'created_at': now},
+            {'scope': 'hospital_admin', 'icon': '🔬', 'text': f'Pipeline processed {count + 1} new patients — Critical:{len(categorized["Critical"])} High:{len(categorized["High"])}', 'time': feed_time, 'created_at': now},
+            {'scope': 'doctor', 'icon': '📋', 'text': f'{count + 1} new patients analyzed — Critical:{len(categorized["Critical"])} High:{len(categorized["High"])}', 'time': feed_time, 'created_at': now},
+            {'scope': 'technician', 'icon': '📊', 'text': f'Pipeline: {count + 1} patients added — awaiting WhatsApp bookings', 'time': feed_time, 'created_at': now},
         ]
         db.activity_feed.insert_many(feed_entries)
 
         db.audit_logs.insert_one({
             'scope': 'superadmin',
             'user': 'SYSTEM',
-            'action': f'Startup pipeline: {count} patients added, WhatsApp sent to {target_name} ({target_risk})',
+            'action': f'Startup pipeline: {count + 1} patients added, WhatsApp sent to {target_names}',
             'hospital': 'ALL',
             'time': feed_time,
         })
@@ -369,13 +415,13 @@ class Command(BaseCommand):
             '╔══════════════════════════════════════════════════════════════╗\n'
             '║                 Pipeline Complete ✓                         ║\n'
             '╠══════════════════════════════════════════════════════════════╣\n'
-            f'║  New Patients Added  : {count:<5d}                                ║\n'
+            f'║  New Patients Added  : {count + 1:<5d}                                ║\n'
             f'║  Critical            : {len(categorized["Critical"]):<5d}                                ║\n'
             f'║  High                : {len(categorized["High"]):<5d}                                ║\n'
             f'║  Medium              : {len(categorized["Medium"]):<5d}                                ║\n'
             f'║  Low                 : {len(categorized["Low"]):<5d}                                ║\n'
-            f'║  WhatsApp Sent To    : {target_name:<37s} ║\n'
-            f'║  Risk Level          : {target_risk:<37s} ║\n'
+            f'║  WhatsApp Sent To    : {sent_count} patients                              ║\n'
+            f'║  Target Patients     : {target_names:<37s} ║\n'
             f'║  Bookings            : Via WhatsApp (patient-initiated)     ║\n'
             '╚══════════════════════════════════════════════════════════════╝\n'
         ))
