@@ -467,7 +467,7 @@
             </div>
             <div class="user-pill">
                 <div class="avatar">SA</div>
-                <div style="font-size: 0.85rem; font-weight: 800;">Super Admin</div>
+                <div style="font-size: 0.85rem; font-weight: 800;">{{ admin_name }}</div>
                 <a href="{% url 'accounts:logout' %}" style="margin-left: 8px; color: var(--text-muted); font-size: 0.75rem; font-weight: 700; text-decoration: none;">Logout</a>
             </div>
         </header>
@@ -483,7 +483,7 @@
                 <div class="metric-card">
                     <div class="m-label">Patients Monitored</div>
                     <div class="m-value">{{ total_patients }}</div>
-                    <div class="m-sub">↑ 8% from last month</div>
+                    <div class="m-sub">Across {{ active_hospitals }} hospitals</div>
                 </div>
                 <div class="metric-card">
                     <div class="m-label">Care Gaps Today</div>
@@ -493,41 +493,93 @@
                 <div class="metric-card">
                     <div class="m-label">Daily Messages</div>
                     <div class="m-value">{{ daily_messages }}</div>
-                    <div class="m-sub">98.2% delivery rate</div>
+                    <div class="m-sub">{{ delivery_rate }}% delivery rate</div>
                 </div>
             </div>
 
             <div class="dash-grid">
-                <!-- PIPELINE CONTROL CARD -->
-                <div class="content-card">
+                <!-- TOP 10 HIGH-RISK PATIENTS -->
+                <div class="content-card" style="grid-column: span 2;">
                     <div class="card-head">
-                        <h3>AI Pipeline Control</h3>
-                        <button class="btn-primary" onclick="runPipeline()" id="pipelineBtn">▶ Run Full Pipeline</button>
+                        <h3>Top 10 High-Risk Patients</h3>
+                        <span style="font-size:0.8rem; color:var(--text-muted);">Ranked by risk score (highest first)</span>
                     </div>
-                    <div style="padding: 24px;">
-                        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 20px;">
-                            Scans all patients → Risk Engine → Care Gap Detection → AI Reasoning → WhatsApp Outreach (Critical → High → Medium → Low).
-                            Scheduled daily at 6:00 AM via Celery Beat.
-                        </p>
-                        <div id="pipelineStats" style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
-                            <div class="detail-row"><span class="detail-label">Critical</span><span class="detail-value" id="statCritical">—</span></div>
-                            <div class="detail-row"><span class="detail-label">High</span><span class="detail-value" id="statHigh">—</span></div>
-                            <div class="detail-row"><span class="detail-label">Medium</span><span class="detail-value" id="statMedium">—</span></div>
-                            <div class="detail-row"><span class="detail-label">Low</span><span class="detail-value" id="statLow">—</span></div>
-                            <div class="detail-row"><span class="detail-label">Open Gaps</span><span class="detail-value" id="statGaps">—</span></div>
-                            <div class="detail-row"><span class="detail-label">Messages Sent</span><span class="detail-value" id="statMsgs">—</span></div>
-                        </div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Patient ID</th>
+                                    <th>Name</th>
+                                    <th>Age</th>
+                                    <th>Disease</th>
+                                    <th>Risk</th>
+                                    <th>Score</th>
+                                    <th>Last Test</th>
+                                    <th>Result</th>
+                                    <th>Overdue</th>
+                                    <th>Hospital</th>
+                                    <th>WhatsApp</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for p in top_10_patients %}
+                                <tr>
+                                    <td style="font-weight:700;">{{ forloop.counter }}</td>
+                                    <td><code>{{ p.patient_id }}</code></td>
+                                    <td style="font-weight:700;">{{ p.name }}</td>
+                                    <td>{{ p.age|default:"-" }}</td>
+                                    <td>{{ p.disease }}</td>
+                                    <td>
+                                        {% if p.risk == 'Critical' %}
+                                            <span class="status-pill" style="background:#dc3545; color:#fff;">Critical</span>
+                                        {% elif p.risk == 'High' %}
+                                            <span class="status-pill" style="background:#fd7e14; color:#fff;">High</span>
+                                        {% elif p.risk == 'Medium' %}
+                                            <span class="status-pill" style="background:#ffc107; color:#000;">Medium</span>
+                                        {% else %}
+                                            <span class="status-pill" style="background:#28a745; color:#fff;">Low</span>
+                                        {% endif %}
+                                    </td>
+                                    <td style="font-weight:700;">{{ p.risk_score|floatformat:1 }}</td>
+                                    <td>{{ p.last_test|default:"-" }}</td>
+                                    <td>{{ p.last_result|default:"-" }}</td>
+                                    <td>{{ p.overdue_days|default:0 }}d</td>
+                                    <td>{{ p.hospital|default:"-" }}</td>
+                                    <td>
+                                        {% if p.whatsapp_state == 'active' %}
+                                            <span style="color:#28a745; font-weight:700;">● Active</span>
+                                        {% elif p.whatsapp_state == 'awaiting_language' %}
+                                            <span style="color:#fd7e14; font-weight:700;">● Awaiting</span>
+                                        {% else %}
+                                            <span style="color:var(--text-muted);">—</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr><td colspan="12" style="text-align:center; color:var(--text-muted); padding:30px;">No patients with risk scores yet. Run the pipeline to analyze patients.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div style="padding:16px 24px; display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:10px; border-top:1px solid var(--border);">
+                        <div class="detail-row"><span class="detail-label">Critical</span><span class="detail-value" style="color:#dc3545; font-weight:800;">{{ risk_critical }}</span></div>
+                        <div class="detail-row"><span class="detail-label">High</span><span class="detail-value" style="color:#fd7e14; font-weight:800;">{{ risk_high }}</span></div>
+                        <div class="detail-row"><span class="detail-label">Medium</span><span class="detail-value" style="color:#ffc107; font-weight:800;">{{ risk_medium }}</span></div>
+                        <div class="detail-row"><span class="detail-label">Low</span><span class="detail-value" style="color:#28a745; font-weight:800;">{{ risk_low }}</span></div>
                     </div>
                 </div>
 
                 <div class="content-card">
                     <div class="card-head"><h3>Live Activity Feed</h3></div>
-                    <div style="padding: 24px;">
+                    <div id="activityFeed" style="padding: 24px;">
                         {% for item in feed %}
                         <div class="feed-item">
                             <div class="feed-icon">{{ item.icon }}</div>
                             <div class="feed-text"><p>{{ item.text }}</p><span>{{ item.time }}</span></div>
                         </div>
+                        {% empty %}
+                        <p style="color:var(--text-muted); font-size:0.85rem;">No activity yet. Run the pipeline to generate feed entries.</p>
                         {% endfor %}
                     </div>
                 </div>
@@ -686,12 +738,17 @@
                     <div class="card-head"><h3>Decision Logic Preview</h3></div>
                     <div style="padding: 24px;">
                         <div class="terminal">
-                            <div class="t-line"><span class="t-gray">></span> Generating reminder for <span class="t-white">#RK4592</span>...</div>
-                            <div class="t-line"><span class="t-gray">></span> Template: <span class="t-white">Trial_Offer_Recall</span></div>
+                            {% if ai_decisions %}
+                            {% with d=ai_decisions.0 %}
+                            <div class="t-line"><span class="t-gray">></span> Generating reminder for <span class="t-white">#{{ d.patient_id }}</span>...</div>
+                            <div class="t-line"><span class="t-gray">></span> Risk: <span class="t-white">{{ d.risk }}</span> | Score: <span class="t-white">{{ d.score }}</span></div>
                             <div class="t-line" style="margin: 10px 0; border: 1px dashed #38bdf8; padding: 10px; border-radius: 8px;">
-                                "Your HbA1c test is overdue. Your last result was 9.5%. Please schedule a test to avoid complications."
+                                "{{ d.action }}"
                             </div>
-                            <div class="t-line"><span class="t-gray">></span> Conversion Probability: <span class="t-white">82.5%</span></div>
+                            {% endwith %}
+                            {% else %}
+                            <div class="t-line"><span class="t-gray">></span> No AI decisions yet. Run the pipeline to generate.</div>
+                            {% endif %}
                         </div>
                     </div>
                 </div>
@@ -709,11 +766,11 @@
                 <div class="card-head"><h3>Outreach Performance</h3></div>
                 <div style="padding: 40px; text-align: center;">
                     <div style="display: flex; gap: 40px; align-items: flex-end; justify-content: center; height: 160px;">
-                        <div style="width: 80px; height: 100%; background: var(--primary); border-radius: 8px 8px 0 0; position: relative;"><span style="position: absolute; bottom: -25px; left: 50%; transform: translateX(-50%); font-size: 0.7rem; font-weight: 800;">SENT</span></div>
-                        <div style="width: 80px; height: 60%; background: var(--primary); opacity: 0.7; border-radius: 8px 8px 0 0; position: relative;"><span style="position: absolute; bottom: -25px; left: 50%; transform: translateX(-50%); font-size: 0.7rem; font-weight: 800;">REPLIED</span></div>
-                        <div style="width: 80px; height: 38%; background: var(--primary); opacity: 0.4; border-radius: 8px 8px 0 0; position: relative;"><span style="position: absolute; bottom: -25px; left: 50%; transform: translateX(-50%); font-size: 0.7rem; font-weight: 800;">BOOKED</span></div>
+                        <div style="width: 80px; height: {{ sent_pct }}%; background: var(--primary); border-radius: 8px 8px 0 0; position: relative;"><span style="position: absolute; bottom: -25px; left: 50%; transform: translateX(-50%); font-size: 0.7rem; font-weight: 800;">SENT</span></div>
+                        <div style="width: 80px; height: {{ replied_pct|default:'0' }}%; background: var(--primary); opacity: 0.7; border-radius: 8px 8px 0 0; position: relative; min-height: 4px;"><span style="position: absolute; bottom: -25px; left: 50%; transform: translateX(-50%); font-size: 0.7rem; font-weight: 800;">REPLIED</span></div>
+                        <div style="width: 80px; height: {{ booked_pct|default:'0' }}%; background: var(--primary); opacity: 0.4; border-radius: 8px 8px 0 0; position: relative; min-height: 4px;"><span style="position: absolute; bottom: -25px; left: 50%; transform: translateX(-50%); font-size: 0.7rem; font-weight: 800;">BOOKED</span></div>
                     </div>
-                    <div style="margin-top: 50px; font-weight: 800; font-size: 1.2rem; color: var(--primary);">Conversion Rate: 38%</div>
+                    <div style="margin-top: 50px; font-weight: 800; font-size: 1.2rem; color: var(--primary);">Conversion Rate: {{ booked_pct|default:'0' }}%</div>
                 </div>
             </div>
         </div>
@@ -925,7 +982,6 @@
                 <label class="modal-label">Role</label>
                 <select id="userRole" class="modal-input">
                     <option value="doctor">Doctor</option>
-                    <option value="coordinator">Coordinator</option>
                     <option value="technician">Technician</option>
                     <option value="hospital_admin">Hospital Admin</option>
                     <option value="platform_admin">Platform Admin</option>
@@ -959,7 +1015,6 @@
                 <label class="modal-label">Role</label>
                 <select id="editUserRole" class="modal-input">
                     <option value="doctor">Doctor</option>
-                    <option value="coordinator">Coordinator</option>
                     <option value="technician">Technician</option>
                     <option value="hospital_admin">Hospital Admin</option>
                     <option value="platform_admin">Platform Admin</option>
@@ -1040,7 +1095,8 @@
             document.querySelectorAll('.nav-item').forEach(item => {
                 item.classList.remove('active');
             });
-            event.currentTarget.classList.add('active');
+            const activeItem = document.querySelector(`.nav-item[onclick*="'${tabId}'"]`);
+            if (activeItem) activeItem.classList.add('active');
 
             // Header Meta Data
             const titles = {
@@ -1215,44 +1271,6 @@
             };
             openModal('confirmDeleteModal');
         }
-
-        // ─── PIPELINE ───
-        function runPipeline() {
-            const btn = document.getElementById('pipelineBtn');
-            btn.disabled = true;
-            btn.textContent = '⏳ Running...';
-            apiCall("{% url 'accounts:api_run_pipeline' %}", {})
-                .then(d => {
-                    if (d.status === 'ok') {
-                        showToast('Pipeline started! Analyzing all patients...');
-                        // Refresh stats after a brief delay
-                        setTimeout(loadPipelineStats, 3000);
-                    } else {
-                        showToast(d.error || 'Pipeline failed', 'error');
-                    }
-                    btn.disabled = false;
-                    btn.textContent = '▶ Run Full Pipeline';
-                }).catch(() => {
-                    showToast('Network error', 'error');
-                    btn.disabled = false;
-                    btn.textContent = '▶ Run Full Pipeline';
-                });
-        }
-
-        function loadPipelineStats() {
-            fetch("{% url 'accounts:api_pipeline_status' %}")
-                .then(r => r.json())
-                .then(d => {
-                    document.getElementById('statCritical').textContent = d.critical || 0;
-                    document.getElementById('statHigh').textContent = d.high || 0;
-                    document.getElementById('statMedium').textContent = d.medium || 0;
-                    document.getElementById('statLow').textContent = d.low || 0;
-                    document.getElementById('statGaps').textContent = d.open_gaps || 0;
-                    document.getElementById('statMsgs').textContent = d.messages_sent || 0;
-                }).catch(() => {});
-        }
-        // Load stats on page load
-        loadPipelineStats();
 
         // ─── SEND WHATSAPP ───
         function sendWhatsApp() {

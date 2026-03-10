@@ -1,0 +1,941 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Technician Panel | MediSynC AI</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #0099bb;
+            --primary-glow: rgba(0, 153, 187, 0.4);
+            --bg: #ffffff;
+            --sidebar-bg: rgba(255, 255, 255, 0.85);
+            --text-main: #121212;
+            --text-muted: #64748b;
+            --border: rgba(0, 0, 0, 0.06);
+            --card-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.05);
+            --transition: all 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-font-smoothing: antialiased; }
+
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: #fff;
+            color: var(--text-main);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+        }
+
+        .grid-bg {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-image:
+                linear-gradient(rgba(0, 153, 187, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 153, 187, 0.03) 1px, transparent 1px);
+            background-size: 50px 50px; z-index: -1; pointer-events: none;
+        }
+
+        .aura {
+            position: fixed; width: 800px; height: 800px;
+            background: radial-gradient(circle, rgba(0, 153, 187, 0.05) 0%, transparent 70%);
+            border-radius: 50%; z-index: -1; pointer-events: none;
+            transform: translate(-50%, -50%); transition: transform 0.1s ease-out;
+        }
+
+        /* --- SIDEBAR --- */
+        aside {
+            width: 280px; height: 100vh; background: var(--sidebar-bg);
+            backdrop-filter: blur(20px); border-right: 1px solid var(--border);
+            display: flex; flex-direction: column; padding: 30px 15px; z-index: 100;
+        }
+
+        .logo-group { line-height: 1; margin-bottom: 40px; padding-left: 15px; }
+        .logo { font-size: 1.5rem; font-weight: 800; letter-spacing: -1px; }
+        .logo span { color: var(--primary); }
+        .sub-logo { font-size: 0.7rem; font-weight: 600; color: var(--text-muted); letter-spacing: 0.5px; margin-top: 4px; }
+
+        nav { flex: 1; overflow-y: auto; padding-bottom: 20px; }
+        nav::-webkit-scrollbar { width: 4px; }
+        nav::-webkit-scrollbar-thumb { background: #eee; border-radius: 10px; }
+
+        .nav-item {
+            display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+            border-radius: 12px; color: var(--text-muted); text-decoration: none;
+            font-size: 0.82rem; font-weight: 700; margin-bottom: 2px;
+            transition: var(--transition); cursor: pointer;
+        }
+
+        .nav-item:hover { background: rgba(0, 153, 187, 0.05); color: var(--primary); }
+        .nav-item.active { background: var(--primary); color: white; box-shadow: 0 8px 20px var(--primary-glow); }
+        .nav-item svg { width: 18px; height: 18px; }
+
+        /* --- MAIN CONTENT --- */
+        main { flex: 1; height: 100vh; overflow-y: auto; padding: 40px 60px; position: relative; }
+
+        header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 40px; }
+        .page-title h1 { font-size: 2.2rem; font-weight: 800; letter-spacing: -1.5px; margin-bottom: 5px; }
+        .page-title p { font-size: 1rem; color: var(--text-muted); }
+
+        .user-pill {
+            display: flex; align-items: center; gap: 12px; padding: 8px 16px;
+            background: white; border-radius: 100px; border: 1px solid var(--border);
+            box-shadow: var(--card-shadow);
+        }
+
+        .avatar {
+            width: 32px; height: 32px; background: #e0f2fe; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 800; color: var(--primary); font-size: 0.75rem;
+        }
+
+        /* --- UI COMPONENTS --- */
+        .metrics-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; margin-bottom: 30px; }
+        .metric-card { background: white; padding: 20px; border-radius: 20px; border: 1px solid var(--border); box-shadow: var(--card-shadow); }
+        .m-label { font-size: 0.65rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+        .m-value { font-size: 1.5rem; font-weight: 800; letter-spacing: -1px; }
+
+        .content-card { background: white; border-radius: 24px; border: 1px solid var(--border); box-shadow: var(--card-shadow); margin-bottom: 30px; overflow: hidden; }
+        .card-head { padding: 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+        .card-head h3 { font-size: 1.1rem; font-weight: 800; letter-spacing: -0.5px; }
+
+        .table-wrap { width: 100%; overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; text-align: left; }
+        th { padding: 16px 24px; background: #fafafa; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+        td { padding: 18px 24px; font-size: 0.85rem; border-bottom: 1px solid var(--border); }
+        tr:last-child td { border-bottom: none; }
+
+        .status-pill { padding: 4px 10px; border-radius: 100px; font-size: 0.65rem; font-weight: 800; display: inline-flex; align-items: center; gap: 5px; }
+        .pill-active { background: #dcfce7; color: #166534; }
+        .pill-critical { background: #fee2e2; color: #991b1b; }
+        .pill-pending { background: #fef3c7; color: #92400e; }
+        .pill-delivered { background: #e0f2fe; color: #0369a1; }
+        .pill-transit { background: #f3e8ff; color: #6b21a8; }
+
+        .btn-action { padding: 8px 14px; border-radius: 10px; border: 1px solid var(--border); background: white; font-size: 0.75rem; font-weight: 700; cursor: pointer; transition: 0.2s; }
+        .btn-action:hover { background: #f8fafc; border-color: var(--primary); color: var(--primary); }
+
+        .btn-primary { background: var(--primary); color: white; padding: 10px 20px; border-radius: 12px; border: none; font-weight: 700; font-size: 0.8rem; cursor: pointer; box-shadow: 0 4px 12px var(--primary-glow); transition: 0.2s; }
+        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 15px var(--primary-glow); }
+
+        /* --- MODAL --- */
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); backdrop-filter: blur(8px); display: none; justify-content: center; align-items: center; z-index: 1000; }
+        .modal-content { background: white; width: 550px; padding: 35px; border-radius: 28px; box-shadow: 0 20px 60px rgba(0,0,0,0.15); animation: modalIn 0.4s cubic-bezier(0.23, 1, 0.32, 1); max-height: 90vh; overflow-y: auto; }
+        @keyframes modalIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        .modal-content h2 { margin-bottom: 15px; font-weight: 800; letter-spacing: -1px; }
+        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; font-size: 0.75rem; font-weight: 800; margin-bottom: 6px; color: var(--text-muted); text-transform: uppercase; }
+        .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border); outline: none; font-family: inherit; font-size: 0.9rem; }
+        .form-group input:focus { border-color: var(--primary); }
+        .modal-actions { display: flex; gap: 10px; margin-top: 20px; }
+
+        /* --- TAB CONTENT --- */
+        .tab-content { display: none; animation: slideUp 0.5s ease forwards; }
+        .tab-content.active { display: block; }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* --- TOAST --- */
+        #toastContainer { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 9999; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+        .toast { background: var(--text-main); color: white; padding: 12px 24px; border-radius: 12px; font-weight: 700; font-size: 0.8rem; box-shadow: 0 10px 30px rgba(0,0,0,0.2); animation: toastIn 0.4s cubic-bezier(0.23, 1, 0.32, 1) forwards; pointer-events: auto; }
+        @keyframes toastIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* --- ACTIVITY FEED --- */
+        .feed-item { display: flex; gap: 15px; padding: 15px 0; border-bottom: 1px solid var(--border); }
+        .feed-icon { width: 36px; height: 36px; border-radius: 10px; background: #f1f5f9; display: flex; align-items: center; justify-content: center; color: var(--primary); }
+        .feed-text p { font-size: 0.85rem; font-weight: 700; }
+        .feed-text span { font-size: 0.75rem; color: var(--text-muted); }
+
+        .site-footer { position: absolute; bottom: 20px; right: 40px; font-size: 0.8rem; font-weight: 700; color: #cbd5e1; pointer-events: none; }
+
+        .dash-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; }
+    </style>
+</head>
+<body>
+
+    <div class="grid-bg"></div>
+    <div class="aura" id="aura"></div>
+    <div id="toastContainer"></div>
+
+    <aside>
+        <div class="logo-group">
+            <div class="logo">Medi<span>SynC.</span></div>
+            <div class="sub-logo">by DevÉlan.</div>
+        </div>
+
+        <nav id="mainNav">
+            <div class="nav-item active" data-tab="dashboard" onclick="switchTab('dashboard')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                Dashboard
+            </div>
+            <div class="nav-item" data-tab="collections" onclick="switchTab('collections')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><polyline points="16 11 18 13 22 9"/></svg>
+                Assigned Tasks
+            </div>
+            <div class="nav-item" data-tab="tracking" onclick="switchTab('tracking')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                Sample Tracking
+            </div>
+            <div class="nav-item" data-tab="schedule" onclick="switchTab('schedule')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                Route & Schedule
+            </div>
+            <div class="nav-item" data-tab="comm" onclick="switchTab('comm')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                Communication
+            </div>
+            <div class="nav-item" data-tab="reports" onclick="switchTab('reports')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                My Reports
+            </div>
+            <div class="nav-item" data-tab="profile" onclick="switchTab('profile')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                Settings
+            </div>
+            <div class="nav-item" data-tab="audit" onclick="switchTab('audit')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                Activity Logs
+            </div>
+        </nav>
+        <a href="{% url 'accounts:logout' %}" class="nav-item" style="margin-top: auto; color: #ef4444; border-top: 1px solid var(--border); padding-top: 14px;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            Logout
+        </a>
+    </aside>
+
+    <main>
+        <header>
+            <div class="page-title">
+                <h1 id="headerTitle">Dashboard</h1>
+                <p id="headerSubtitle">Overview of technician workload and collection status</p>
+            </div>
+            <div class="user-pill">
+                <div class="avatar">{{ technician_initials }}</div>
+                <div style="font-size: 0.85rem; font-weight: 800;">{{ technician_name }}</div>
+            </div>
+        </header>
+
+        <!-- ═══════════ DASHBOARD ═══════════ -->
+        <div id="dashboard" class="tab-content active">
+            <div class="metrics-row">
+                <div class="metric-card"><div class="m-label">Today's Collections</div><div class="m-value" id="metricCollections">{{ today_collections }}</div></div>
+                <div class="metric-card"><div class="m-label">Completed</div><div class="m-value" id="metricCompleted">{{ completed_count }}</div></div>
+                <div class="metric-card"><div class="m-label">Pending</div><div class="m-value" id="metricPending">{{ pending_count }}</div></div>
+                <div class="metric-card"><div class="m-label">Delivered to Lab</div><div class="m-value" id="metricDelivered">{{ delivered_count }}</div></div>
+                <div class="metric-card"><div class="m-label">Follow-ups</div><div class="m-value" id="metricFollowups">{{ followup_count }}</div></div>
+            </div>
+            <div class="dash-grid">
+                <div class="content-card">
+                    <div class="card-head"><h3>Recent Activity</h3></div>
+                    <div style="padding: 24px;" id="techFeed">
+                        {% for f in feed %}
+                        <div class="feed-item">
+                            <div class="feed-icon">{{ f.icon|default:"🔔" }}</div>
+                            <div class="feed-text"><p>{{ f.text }}</p><span>{{ f.time }}</span></div>
+                        </div>
+                        {% empty %}
+                        <p style="color: var(--text-muted); font-size: 0.85rem;">No recent activity yet.</p>
+                        {% endfor %}
+                    </div>
+                </div>
+                <div class="content-card">
+                    <div class="card-head"><h3>Quick Actions</h3></div>
+                    <div style="padding: 24px; text-align: center;">
+                        <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 20px;">Next Pending Booking</p>
+                        {% for b in bookings %}
+                        {% if b.status == 'Scheduled' %}
+                        <div style="font-size: 1.2rem; font-weight: 800;">{{ b.patient }}</div>
+                        <div style="color: var(--primary); font-weight: 700; margin: 10px 0;">{{ b.test }} &mdash; {{ b.date }}</div>
+                        <button class="btn-primary" style="width: 100%;" onclick="switchTab('collections')">View Tasks</button>
+                        {% endif %}
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══════════ ASSIGNED COLLECTIONS ═══════════ -->
+        <div id="collections" class="tab-content">
+            <div class="content-card">
+                <div class="card-head"><h3>Today's Collection Queue</h3></div>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>Patient</th><th>Test</th><th>Hospital</th><th>Date</th><th>Status</th><th>Actions</th></tr></thead>
+                        <tbody>
+                            {% for b in bookings %}
+                            <tr>
+                                <td style="font-weight:700;">{{ b.patient }}</td>
+                                <td>{{ b.test }}</td>
+                                <td>{{ b.hospital|default:"—" }}</td>
+                                <td>{{ b.date }}</td>
+                                <td>
+                                    {% if b.status == 'Completed' %}
+                                    <span class="status-pill pill-active">Completed</span>
+                                    {% elif b.status == 'In Progress' %}
+                                    <span class="status-pill pill-transit">In Progress</span>
+                                    {% else %}
+                                    <span class="status-pill pill-pending">Scheduled</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <button class="btn-action" onclick="viewCollection('{{ b.patient }}', '{{ b.disease }}', '{{ b.patient_id }}', '{{ b.age }}', '{{ b.doctor }}', '{{ b.test }}')">Details</button>
+                                    {% if b.status == 'Scheduled' %}
+                                    <button class="btn-action" onclick="startVisit(this, '{{ b.patient }}')">Start Visit</button>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="6" style="text-align:center; color: var(--text-muted);">No bookings found.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══════════ COLLECTION DETAILS ═══════════ -->
+        <div id="details" class="tab-content">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px;">
+                <div class="content-card">
+                    <div class="card-head"><h3>Patient Information</h3></div>
+                    <div style="padding: 24px; line-height: 2;">
+                        <p><strong>Name:</strong> <span id="detName">—</span></p>
+                        <p><strong>Age:</strong> <span id="detAge">—</span> | <strong>ID:</strong> <span id="detPID">—</span></p>
+                        <p><strong>Condition:</strong> <span id="detDisease">—</span></p>
+                        <p><strong>Assigned Doctor:</strong> <span id="detDoctor">—</span></p>
+                        <div style="margin-top: 20px;">
+                            <button class="btn-primary" style="width: 100%;" onclick="startVisitFromDetails()">Start Collection</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="content-card">
+                    <div class="card-head"><h3>Test & Sample Specs</h3></div>
+                    <div style="padding: 24px; line-height: 2;">
+                        <p><strong>Test Name:</strong> <span id="detTest">—</span></p>
+                        <p><strong>Sample Type:</strong> Venous Blood (EDTA Tube)</p>
+                        <p><strong>Instructions:</strong> Fasting not required. Invert tube 8 times.</p>
+                        <div style="margin-top: 20px; display: flex; gap: 10px;">
+                            <button class="btn-action" style="flex: 1; font-weight: 800; border-color: var(--primary); color: var(--primary);" onclick="openModal('uploadSampleModal')">Upload Sample Tube</button>
+                            <button class="btn-primary" style="flex: 1;" onclick="openModal('reportModal')">Assign Report Details</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══════════ SAMPLE TRACKING ═══════════ -->
+        <div id="tracking" class="tab-content">
+            <div class="content-card">
+                <div class="card-head"><h3>Collected Samples Log</h3></div>
+                <div class="table-wrap">
+                    <table id="trackingTable">
+                        <thead><tr><th>Patient</th><th>Test</th><th>Result</th><th>Date</th><th>Status</th><th>Actions</th></tr></thead>
+                        <tbody>
+                            {% for t in test_results %}
+                            <tr>
+                                <td style="font-weight:700;">{{ t.patient }}</td>
+                                <td>{{ t.test }}</td>
+                                <td>{{ t.result|default:"—" }}</td>
+                                <td>{{ t.date }}</td>
+                                <td>
+                                    {% if t.status == 'Delivered' %}
+                                    <span class="status-pill pill-delivered">Delivered</span>
+                                    {% elif t.status == 'In Transit' %}
+                                    <span class="status-pill pill-transit">In Transit</span>
+                                    {% elif t.status == 'Collected' %}
+                                    <span class="status-pill pill-active">Collected</span>
+                                    {% else %}
+                                    <span class="status-pill pill-pending">{{ t.status|default:"Pending" }}</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if t.status != 'Delivered' %}
+                                    <button class="btn-action" onclick="updateSampleStatus(this, '{{ t.patient }}', '{{ t.status }}')">Update Status</button>
+                                    {% else %}
+                                    <button class="btn-action" disabled>Archived</button>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="6" style="text-align:center; color: var(--text-muted);">No samples recorded yet.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══════════ ROUTE & SCHEDULE ═══════════ -->
+        <div id="schedule" class="tab-content">
+            <div class="content-card">
+                <div class="card-head"><h3>Today's Schedule</h3><button class="btn-primary" onclick="showToast('Route re-optimized for current traffic.')">Optimize Route</button></div>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>Date</th><th>Patient</th><th>Test</th><th>Status</th><th>Action</th></tr></thead>
+                        <tbody>
+                            {% for b in bookings %}
+                            <tr>
+                                <td>{{ b.date }}</td>
+                                <td style="font-weight:700;">{{ b.patient }}</td>
+                                <td>{{ b.test }}</td>
+                                <td>
+                                    {% if b.status == 'Completed' %}
+                                    <span class="status-pill pill-active">Completed</span>
+                                    {% elif b.status == 'In Progress' %}
+                                    <span class="status-pill pill-transit">In Progress</span>
+                                    {% else %}
+                                    <span class="status-pill pill-pending">Scheduled</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if b.status == 'Scheduled' %}
+                                    <button class="btn-action" onclick="confirmAppointment('{{ b.patient }}')">Confirm Appointment</button>
+                                    {% else %}
+                                    <span style="color: var(--text-muted); font-size: 0.8rem;">Done</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="5" style="text-align:center; color: var(--text-muted);">No scheduled bookings.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══════════ COMMUNICATION ═══════════ -->
+        <div id="comm" class="tab-content">
+            <div class="content-card">
+                <div class="card-head"><h3>Patient Interaction Log</h3><button class="btn-primary" onclick="openModal('msgModal')">Compose Message</button></div>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>Patient</th><th>Message</th><th>Channel</th><th>Language</th><th>Status</th></tr></thead>
+                        <tbody>
+                            {% for m in messages %}
+                            <tr>
+                                <td style="font-weight:700;">{{ m.patient }}</td>
+                                <td>{{ m.message|truncatechars:80 }}</td>
+                                <td>{{ m.channel }}</td>
+                                <td><span style="font-size:0.75rem; font-weight:600;">{{ m.language|default:"English" }}</span></td>
+                                <td>
+                                    {% if m.status == 'Delivered' %}
+                                    <span class="status-pill pill-delivered">Delivered</span>
+                                    {% elif m.status == 'Replied' %}
+                                    <span class="status-pill pill-active">Replied</span>
+                                    {% elif m.status == 'Failed' %}
+                                    <span class="status-pill pill-critical">Failed</span>
+                                    {% else %}
+                                    <span class="status-pill pill-pending">{{ m.status }}</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="5" style="text-align:center; color: var(--text-muted);">No messages yet.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══════════ REPORTS ═══════════ -->
+        <div id="reports" class="tab-content">
+            <div class="metrics-row" style="grid-template-columns: repeat(3, 1fr);">
+                <div class="metric-card"><div class="m-label">Total Collections</div><div class="m-value">{{ today_collections }}</div></div>
+                <div class="metric-card"><div class="m-label">Success Rate</div><div class="m-value">{{ success_rate }}%</div></div>
+                <div class="metric-card"><div class="m-label">Samples Delivered</div><div class="m-value">{{ delivered_count }}</div></div>
+            </div>
+            <div class="content-card">
+                <div class="card-head"><h3>Performance Export</h3></div>
+                <div style="padding: 40px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;">
+                    <button class="btn-primary" onclick="generateReport('Collection Summary Report')">Export CSV</button>
+                    <button class="btn-primary" onclick="generateReport('Detailed Performance Report')">Export Excel</button>
+                    <button class="btn-primary" onclick="generateReport('PDF Collection Report')">Export PDF</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══════════ PROFILE ═══════════ -->
+        <div id="profile" class="tab-content">
+            <div class="content-card">
+                <div class="card-head"><h3>Technician Credentials</h3></div>
+                <div style="padding: 30px; max-width: 500px;">
+                    <div class="form-group"><label>Full Name</label><input type="text" value="{{ technician_name }}" readonly></div>
+                    <div class="form-group"><label>Email</label><input type="text" value="{{ technician_email }}" readonly></div>
+                    <div class="form-group"><label>Role</label><input type="text" value="Lab Technician" readonly></div>
+                    <button class="btn-primary" onclick="showToast('Profile settings saved.')">Update Profile</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══════════ AUDIT LOGS ═══════════ -->
+        <div id="audit" class="tab-content">
+            <div class="content-card">
+                <div class="card-head"><h3>Session Activity Trail</h3></div>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>Action</th><th>Target</th><th>Timestamp</th></tr></thead>
+                        <tbody>
+                            {% for log in audit_logs %}
+                            <tr>
+                                <td style="font-weight:700;">{{ log.action }}</td>
+                                <td>{{ log.target|default:"—" }}</td>
+                                <td>{{ log.time }}</td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="3" style="text-align:center; color: var(--text-muted);">No audit logs recorded.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="site-footer">DevÉlan</div>
+    </main>
+
+    <!-- ═══════════ MODALS ═══════════ -->
+
+    <!-- Assign Report Details Modal -->
+    <div class="modal-overlay" id="reportModal">
+        <div class="modal-content" style="width: 600px;">
+            <h2>Assign Report Details</h2>
+            <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 20px;">Complete the diagnostic patient record details.</p>
+            <div class="form-grid">
+                <div class="form-group"><label>Patient ID</label><input type="text" id="repPID" readonly></div>
+                <div class="form-group"><label>Patient Name</label><input type="text" id="repName" readonly></div>
+                <div class="form-group"><label>Age</label><input type="number" id="repAge" placeholder="Enter age"></div>
+                <div class="form-group"><label>Disease</label><input type="text" id="repDisease" placeholder="Primary condition"></div>
+                <div class="form-group"><label>Test Required</label><input type="text" id="repTest" placeholder="Type of test"></div>
+                <div class="form-group"><label>Last Test Date</label><input type="date" id="repLastDate"></div>
+                <div class="form-group"><label>Last Result</label><input type="text" id="repLastRes" placeholder="Previous findings"></div>
+                <div class="form-group"><label>Doctor</label><input type="text" id="repDocID" placeholder="Assigned physician"></div>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-primary" onclick="submitFinalReport()">Assign to Patient Record</button>
+                <button class="btn-action" onclick="closeModal('reportModal')">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Message Modal -->
+    <div class="modal-overlay" id="msgModal">
+        <div class="modal-content">
+            <h2>Compose Patient Message</h2>
+            <div class="form-group"><label>Patient Name</label><input type="text" id="msgTarget" placeholder="Patient name"></div>
+            <div class="form-grid">
+                <div class="form-group"><label>Channel</label><select id="msgChannel"><option value="WhatsApp">WhatsApp</option><option value="SMS">SMS</option></select></div>
+                <div class="form-group"><label>Language</label>
+                    <select id="msgLang">
+                        <option value="en">English</option>
+                        <option value="hi">Hindi (हिन्दी)</option>
+                        <option value="ta">Tamil (தமிழ்)</option>
+                        <option value="te">Telugu (తెలుగు)</option>
+                        <option value="kn">Kannada (ಕನ್ನಡ)</option>
+                        <option value="ml">Malayalam (മലയാളം)</option>
+                        <option value="bn">Bengali (বাংলা)</option>
+                        <option value="mr">Marathi (मराठी)</option>
+                        <option value="gu">Gujarati (ગુજરાતી)</option>
+                        <option value="pa">Punjabi (ਪੰਜਾਬੀ)</option>
+                        <option value="ur">Urdu (اردو)</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-group"><label>Message Content</label><textarea id="msgBody" rows="3" placeholder="Hello, I will be arriving in 15 minutes..."></textarea></div>
+            <div id="translationPreview" style="display:none; margin-bottom:15px; padding:12px 16px; background:#f0f9ff; border:1px solid #bae6fd; border-radius:10px;">
+                <div style="font-size:0.7rem; font-weight:800; color:#0369a1; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;">Translation Preview</div>
+                <div id="translatedText" style="font-size:0.85rem; line-height:1.6;"></div>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-primary" onclick="submitMessage()">Send Message</button>
+                <button class="btn-action" onclick="previewTranslation()" id="previewBtn" style="display:none;">Preview Translation</button>
+                <button class="btn-action" onclick="closeModal('msgModal')">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Upload Sample Detail Modal -->
+    <div class="modal-overlay" id="uploadSampleModal">
+        <div class="modal-content">
+            <h2>Log Collection Sample</h2>
+            <div class="form-group"><label>Patient</label><input type="text" id="sPatient" readonly></div>
+            <div class="form-group"><label>Test</label><input type="text" id="sTest" readonly></div>
+            <div class="form-group"><label>Result / Notes</label><textarea id="sNotes" rows="2" placeholder="Sample stored in ice pack..."></textarea></div>
+            <div class="modal-actions"><button class="btn-primary" onclick="confirmSampleUpload()">Log Sample</button><button class="btn-action" onclick="closeModal('uploadSampleModal')">Cancel</button></div>
+        </div>
+    </div>
+
+    <!-- Report Issue Modal -->
+    <div class="modal-overlay" id="issueModal">
+        <div class="modal-content">
+            <h2>Report Operational Issue</h2>
+            <div class="form-group"><label>Sample / Task</label><input type="text" id="issueTarget" placeholder="Patient name or task"></div>
+            <div class="form-group"><label>Description of Issue</label><textarea rows="3" placeholder="Patient unavailable at location..."></textarea></div>
+            <div class="modal-actions"><button class="btn-primary" style="background:#ef4444;" onclick="showToast('Incident reported successfully.'); closeModal('issueModal');">Report Incident</button><button class="btn-action" onclick="closeModal('issueModal')">Cancel</button></div>
+        </div>
+    </div>
+
+    <script>
+        // ── Aura ──
+        const aura = document.getElementById('aura');
+        document.addEventListener('mousemove', (e) => {
+            aura.style.left = e.clientX + 'px';
+            aura.style.top = e.clientY + 'px';
+        });
+
+        // ── CSRF ──
+        function getCookie(name) {
+            let v = null;
+            document.cookie.split(';').forEach(c => {
+                c = c.trim();
+                if (c.startsWith(name + '=')) v = decodeURIComponent(c.substring(name.length + 1));
+            });
+            return v;
+        }
+        const csrfToken = getCookie('csrftoken');
+
+        // ── Toast ──
+        function showToast(message) {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.innerText = message;
+            container.appendChild(toast);
+            setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 400); }, 3000);
+        }
+
+        // ── Tab Switching ──
+        function switchTab(tabId) {
+            document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
+            const activeItem = document.querySelector(`.nav-item[data-tab="${tabId}"]`);
+            if (activeItem) activeItem.classList.add('active');
+
+            const titles = {
+                'dashboard': ['Dashboard', 'Overview of technician workload and collection status'],
+                'collections': ['Assigned Collections', 'Active tasks for home sample pickups'],
+                'details': ['Collection Details', 'Patient clinical data and test instructions'],
+                'tracking': ['Sample Tracking', 'Monitor the journey from pickup to lab delivery'],
+                'schedule': ['Route & Schedule', 'Traffic-optimized navigation plan'],
+                'comm': ['Patient Communication', 'Direct messaging with patients on route'],
+                'reports': ['My Reports', 'Personal performance and logistics metrics'],
+                'profile': ['Settings', 'Manage personal credentials and zone preferences'],
+                'audit': ['Activity Logs', 'History of completed tasks and logs']
+            };
+
+            if (titles[tabId]) {
+                document.getElementById('headerTitle').innerText = titles[tabId][0];
+                document.getElementById('headerSubtitle').innerText = titles[tabId][1];
+            }
+
+            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+            const target = document.getElementById(tabId);
+            if (target) target.classList.add('active');
+        }
+
+        // ── Modals ──
+        function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+        function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+
+        // ── Current detail state ──
+        let currentPatient = '';
+        let currentTest = '';
+
+        // ── View Collection Details ──
+        function viewCollection(name, disease, pid, age, doctor, test) {
+            currentPatient = name;
+            currentTest = test;
+            document.getElementById('detName').innerText = name;
+            document.getElementById('detAge').innerText = age || '—';
+            document.getElementById('detPID').innerText = pid || '—';
+            document.getElementById('detDisease').innerText = disease || '—';
+            document.getElementById('detDoctor').innerText = doctor || '—';
+            document.getElementById('detTest').innerText = test || '—';
+
+            // Pre-fill report modal
+            document.getElementById('repPID').value = pid || '';
+            document.getElementById('repName').value = name;
+            document.getElementById('repAge').value = age || '';
+            document.getElementById('repDisease').value = disease || '';
+            document.getElementById('repTest').value = test || '';
+            document.getElementById('repDocID').value = doctor || '';
+
+            // Pre-fill sample upload
+            document.getElementById('sPatient').value = name;
+            document.getElementById('sTest').value = test || '';
+
+            switchTab('details');
+        }
+
+        // ── Start Visit (update booking status to In Progress) ──
+        function startVisit(btn, patient) {
+            const fd = new FormData();
+            fd.append('patient', patient);
+            fd.append('status', 'In Progress');
+            fetch('/accounts/api/booking/status/', {
+                method: 'POST', headers: {'X-CSRFToken': csrfToken}, body: fd,
+            }).then(r => r.json()).then(data => {
+                if (data.status === 'ok') {
+                    if (btn) {
+                        const statusCell = btn.parentElement.parentElement.cells[4];
+                        statusCell.innerHTML = '<span class="status-pill pill-transit">In Progress</span>';
+                        btn.remove();
+                    }
+                    showToast('Visit started. Destination logged.');
+                } else {
+                    showToast(data.error || 'Failed to update status.');
+                }
+            });
+        }
+
+        function startVisitFromDetails() {
+            if (!currentPatient) return;
+            const fd = new FormData();
+            fd.append('patient', currentPatient);
+            fd.append('status', 'In Progress');
+            fetch('/accounts/api/booking/status/', {
+                method: 'POST', headers: {'X-CSRFToken': csrfToken}, body: fd,
+            }).then(r => r.json()).then(data => {
+                if (data.status === 'ok') showToast('Visit started. Proceed to patient address.');
+                else showToast(data.error || 'Failed to update.');
+            });
+        }
+
+        // ── Confirm Appointment (send WhatsApp) ──
+        function confirmAppointment(patient) {
+            const fd = new FormData();
+            fd.append('patient', patient);
+            fd.append('channel', 'WhatsApp');
+            fd.append('message', 'Appointment confirmed. Technician is on the way.');
+            fetch('/accounts/api/message/', {
+                method: 'POST', headers: {'X-CSRFToken': csrfToken}, body: fd,
+            }).then(r => r.json()).then(data => {
+                if (data.status === 'ok') showToast('Confirmation sent to ' + patient + '.');
+                else showToast(data.error || 'Failed to send.');
+            });
+        }
+
+        // ── Language selector toggle ──
+        document.getElementById('msgLang').addEventListener('change', function() {
+            const previewBtn = document.getElementById('previewBtn');
+            const previewBox = document.getElementById('translationPreview');
+            if (this.value !== 'en') {
+                previewBtn.style.display = 'inline-block';
+            } else {
+                previewBtn.style.display = 'none';
+                previewBox.style.display = 'none';
+            }
+        });
+
+        // ── Preview Translation ──
+        function previewTranslation() {
+            const body = document.getElementById('msgBody').value.trim();
+            const lang = document.getElementById('msgLang').value;
+            if (!body) { showToast('Write a message first.'); return; }
+            document.getElementById('translatedText').innerText = 'Translating...';
+            document.getElementById('translationPreview').style.display = 'block';
+
+            const fd = new FormData();
+            fd.append('message', body);
+            fd.append('language', lang);
+            fetch('/accounts/api/translate/preview/', {
+                method: 'POST', headers: {'X-CSRFToken': csrfToken}, body: fd,
+            }).then(r => r.json()).then(data => {
+                document.getElementById('translatedText').innerText = data.translated || 'Translation failed.';
+            }).catch(() => {
+                document.getElementById('translatedText').innerText = 'Translation service unavailable.';
+            });
+        }
+
+        // ── Submit Message ──
+        function submitMessage() {
+            const patient = document.getElementById('msgTarget').value.trim();
+            const channel = document.getElementById('msgChannel').value;
+            const body = document.getElementById('msgBody').value.trim();
+            const language = document.getElementById('msgLang').value;
+            if (!patient || !body) { showToast('Please fill in patient and message.'); return; }
+
+            const fd = new FormData();
+            fd.append('patient', patient);
+            fd.append('channel', channel);
+            fd.append('message', body);
+            fd.append('language', language);
+            fetch('/accounts/api/message/', {
+                method: 'POST', headers: {'X-CSRFToken': csrfToken}, body: fd,
+            }).then(r => r.json()).then(data => {
+                if (data.status === 'ok') {
+                    const langInfo = data.language && data.language !== 'English' ? ' in ' + data.language : '';
+                    showToast('Message sent to ' + patient + ' via ' + channel + langInfo + '.');
+                    document.getElementById('msgBody').value = '';
+                    document.getElementById('msgLang').value = 'en';
+                    document.getElementById('previewBtn').style.display = 'none';
+                    document.getElementById('translationPreview').style.display = 'none';
+                    closeModal('msgModal');
+                } else {
+                    showToast(data.error || 'Failed to send message.');
+                }
+            });
+        }
+
+        // ── Upload Sample / Log Test Result ──
+        function confirmSampleUpload() {
+            const patient = document.getElementById('sPatient').value.trim();
+            const test = document.getElementById('sTest').value.trim();
+            const notes = document.getElementById('sNotes').value.trim();
+            if (!patient || !test) { showToast('No patient/test selected.'); return; }
+
+            const fd = new FormData();
+            fd.append('patient', patient);
+            fd.append('test', test);
+            fd.append('result', notes || 'Sample collected');
+            fetch('/accounts/api/test-result/', {
+                method: 'POST', headers: {'X-CSRFToken': csrfToken}, body: fd,
+            }).then(r => r.json()).then(data => {
+                if (data.status === 'ok') {
+                    showToast('Sample logged for ' + patient + '.');
+                    // Add row to tracking table
+                    const tbody = document.querySelector('#trackingTable tbody');
+                    const row = document.createElement('tr');
+                    row.innerHTML = '<td style="font-weight:700;">' + patient + '</td><td>' + test + '</td><td>' + (notes || 'Sample collected') + '</td><td>Today</td><td><span class="status-pill pill-active">Collected</span></td><td><button class="btn-action" onclick="updateSampleStatus(this, \'' + patient + '\', \'Collected\')">Update Status</button></td>';
+                    tbody.insertBefore(row, tbody.firstChild);
+                    closeModal('uploadSampleModal');
+                } else {
+                    showToast(data.error || 'Failed to log sample.');
+                }
+            });
+        }
+
+        // ── Update Sample Status ──
+        function updateSampleStatus(btn, patient, currentStatus) {
+            let nextStatus = 'In Transit';
+            if (currentStatus === 'In Transit' || currentStatus === 'Collected') {
+                nextStatus = currentStatus === 'Collected' ? 'In Transit' : 'Delivered';
+            }
+
+            const fd = new FormData();
+            fd.append('patient', patient);
+            fd.append('status', nextStatus);
+            fetch('/accounts/api/sample/status/', {
+                method: 'POST', headers: {'X-CSRFToken': csrfToken}, body: fd,
+            }).then(r => r.json()).then(data => {
+                if (data.status === 'ok') {
+                    const statusCell = btn.parentElement.parentElement.cells[4];
+                    if (nextStatus === 'In Transit') {
+                        statusCell.innerHTML = '<span class="status-pill pill-transit">In Transit</span>';
+                        btn.setAttribute('onclick', "updateSampleStatus(this, '" + patient + "', 'In Transit')");
+                        showToast('Sample moving to central lab.');
+                    } else {
+                        statusCell.innerHTML = '<span class="status-pill pill-delivered">Delivered</span>';
+                        btn.disabled = true;
+                        btn.innerText = 'Archived';
+                        showToast('Sample delivered to lab.');
+                    }
+                } else {
+                    showToast(data.error || 'Failed to update status.');
+                }
+            });
+        }
+
+        // ── Submit Final Report (test result via Details page) ──
+        function submitFinalReport() {
+            const patient = document.getElementById('repName').value;
+            const test = document.getElementById('repTest').value;
+            const result = document.getElementById('repLastRes').value || 'Report finalized';
+            if (!patient || !test) { showToast('Missing patient/test info.'); return; }
+
+            const fd = new FormData();
+            fd.append('patient', patient);
+            fd.append('test', test);
+            fd.append('result', result);
+            fetch('/accounts/api/test-result/', {
+                method: 'POST', headers: {'X-CSRFToken': csrfToken}, body: fd,
+            }).then(r => r.json()).then(data => {
+                if (data.status === 'ok') {
+                    showToast('Report finalized for ' + patient + '. Synced to EMR.');
+                    // Add row to tracking table
+                    const tbody = document.querySelector('#trackingTable tbody');
+                    const row = document.createElement('tr');
+                    row.innerHTML = '<td style="font-weight:700;">' + patient + '</td><td>' + test + '</td><td>' + result + '</td><td>Today</td><td><span class="status-pill pill-active">Report Finalized</span></td><td><button class="btn-action" disabled>Submitted</button></td>';
+                    tbody.insertBefore(row, tbody.firstChild);
+                    closeModal('reportModal');
+                    switchTab('tracking');
+                } else {
+                    showToast(data.error || 'Failed to submit report.');
+                }
+            });
+        }
+
+        // ── Auto-refresh feed & metrics every 30s ──
+        function refreshTechnicianData() {
+            fetch('/accounts/api/technician/feed/')
+                .then(r => r.json())
+                .then(data => {
+                    // Update feed
+                    const feedContainer = document.getElementById('techFeed');
+                    if (data.feed && data.feed.length) {
+                        feedContainer.innerHTML = data.feed.map(f =>
+                            '<div class="feed-item"><div class="feed-icon">' + (f.icon || '🔔') + '</div><div class="feed-text"><p>' + f.text + '</p><span>' + f.time + '</span></div></div>'
+                        ).join('');
+                    }
+                    // Update metrics
+                    if (data.metrics) {
+                        document.getElementById('metricCollections').innerText = data.metrics.today_collections;
+                        document.getElementById('metricCompleted').innerText = data.metrics.completed;
+                        document.getElementById('metricPending').innerText = data.metrics.pending;
+                        document.getElementById('metricDelivered').innerText = data.metrics.delivered;
+                        document.getElementById('metricFollowups').innerText = data.metrics.followups;
+                    }
+                })
+                .catch(() => {});
+        }
+
+        setInterval(refreshTechnicianData, 30000);
+
+        // ── Generate Report (print-friendly window) ──
+        function generateReport(reportName) {
+            const reportWindow = window.open('', '_blank');
+            const date = new Date().toLocaleDateString();
+            const collections = document.getElementById('metricCollections').innerText;
+            const completed = document.getElementById('metricCompleted').innerText;
+            const delivered = document.getElementById('metricDelivered').innerText;
+
+            const reportHtml = [
+                '<html><head><title>', reportName, ' - MediSynC</title>',
+                '<style>',
+                'body { font-family: "Plus Jakarta Sans", sans-serif; padding: 50px; color: #121212; line-height: 1.6; }',
+                '.header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #0099bb; padding-bottom: 20px; margin-bottom: 30px; }',
+                '.logo { font-size: 2rem; font-weight: 800; color: #121212; }',
+                '.logo span { color: #0099bb; }',
+                '.hosp-info { text-align: right; }',
+                'table { width: 100%; border-collapse: collapse; margin-top: 30px; }',
+                'th { background: #fafafa; text-align: left; padding: 12px; border-bottom: 2px solid #eee; }',
+                'td { padding: 12px; border-bottom: 1px solid #eee; }',
+                '.footer { margin-top: 50px; font-size: 0.8rem; color: #666; border-top: 1px solid #eee; padding-top: 20px; text-align: center; }',
+                '</style></head><body>',
+                '<div class="header">',
+                '<div class="logo">Medi<span>SynC.</span></div>',
+                '<div class="hosp-info"><strong>Lab Technician Report</strong><br>{{ technician_name }}<br>Date: ', date, '</div>',
+                '</div>',
+                '<h2>', reportName, '</h2>',
+                '<p>Collection and logistics summary processed by MediSynC AI Engine.</p>',
+                '<table><thead><tr><th>Parameter</th><th>Value</th><th>Status</th></tr></thead>',
+                '<tbody>',
+                '<tr><td>Total Collections</td><td>', collections, '</td><td>Tracked</td></tr>',
+                '<tr><td>Completed</td><td>', completed, '</td><td>On Track</td></tr>',
+                '<tr><td>Delivered to Lab</td><td>', delivered, '</td><td>Verified</td></tr>',
+                '</tbody></table>',
+                '<div class="footer">MediSynC Systems | Synchronizing Data, Doctors, and Patients.<br>&copy; 2026 MediSynC AI.</div>',
+                '<script>window.onload = function() { window.print(); };\x3C/script>',
+                '</body></html>'
+            ].join('');
+
+            reportWindow.document.open();
+            reportWindow.document.write(reportHtml);
+            reportWindow.document.close();
+        }
+    </script>
+</body>
+</html>

@@ -189,10 +189,6 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
                 Doctors
             </div>
-            <div class="nav-item" data-tab="coordinators" onclick="switchTab('coordinators')">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><polyline points="17 11 19 13 23 9"/></svg>
-                Care Coordinators
-            </div>
             <div class="nav-item" data-tab="technicians" onclick="switchTab('technicians')">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
                 Lab Technicians
@@ -232,7 +228,7 @@
         <header>
             <div class="page-title">
                 <h1 id="headerTitle">Dashboard</h1>
-                <p id="headerSubtitle">Overview of Apollo Chennai activity</p>
+                <p id="headerSubtitle">Overview of {{ hospital_name }} activity</p>
             </div>
             <div class="user-pill">
                 <div class="avatar">HA</div>
@@ -251,7 +247,7 @@
             <div class="dash-grid">
                 <div class="content-card">
                     <div class="card-head"><h3>Recent Hospital Activity</h3></div>
-                    <div style="padding: 24px;">
+                    <div id="hospitalFeed" style="padding: 24px;">
                         {% for item in feed %}
                         <div class="feed-item"><div class="feed-icon">{{ item.icon }}</div><div class="feed-text"><p>{{ item.text }}</p><span>{{ item.time }}</span></div></div>
                         {% endfor %}
@@ -259,17 +255,15 @@
                 </div>
                 <div class="content-card">
                     <div class="card-head"><h3>Disease Trends</h3></div>
-                    <div class="chart-row">
-                        <div class="chart-bar" style="height: 90%;"><span>45%</span></div>
-                        <div class="chart-bar" style="height: 60%; opacity: 0.7;"><span>30%</span></div>
-                        <div class="chart-bar" style="height: 30%; opacity: 0.5;"><span>15%</span></div>
-                        <div class="chart-bar" style="height: 20%; opacity: 0.3;"><span>10%</span></div>
+                    <div id="diseaseChartBars" class="chart-row">
+                        {% for d in disease_data %}
+                        <div class="chart-bar" style="height: {{ d.height }}%; opacity: {% if forloop.first %}1{% elif forloop.counter == 2 %}0.7{% elif forloop.counter == 3 %}0.5{% else %}0.3{% endif %};"><span>{{ d.pct }}%</span></div>
+                        {% endfor %}
                     </div>
-                    <div style="display: flex; justify-content: space-around; padding: 0 20px 20px;">
-                        <div class="chart-label">Diabetes</div>
-                        <div class="chart-label">Hyper</div>
-                        <div class="chart-label">CKD</div>
-                        <div class="chart-label">Thyroid</div>
+                    <div id="diseaseChartLabels" style="display: flex; justify-content: space-around; padding: 0 20px 20px;">
+                        {% for d in disease_data %}
+                        <div class="chart-label">{{ d.label }}</div>
+                        {% endfor %}
                     </div>
                 </div>
             </div>
@@ -344,7 +338,7 @@
                         <thead><tr><th>Patient</th><th>Test Overdue</th><th>Delay</th><th>Risk</th><th>Actions</th></tr></thead>
                         <tbody>
                             {% for g in care_gaps %}
-                            <tr><td style="font-weight:700;">{{ g.patient }}</td><td>{{ g.test }}</td><td>{{ g.overdue_days }} days</td><td>{% if g.risk == 'High' %}<span class="status-pill pill-critical">High</span>{% elif g.risk == 'Critical' %}<span class="status-pill pill-critical">Critical</span>{% elif g.risk == 'Medium' %}<span class="status-pill pill-medium">Medium</span>{% else %}{{ g.risk }}{% endif %}</td><td>{% if g.risk == 'Critical' %}<button class="btn-action" style="color:red; border-color:red;" onclick="escalateCare(this, '{{ g.patient }}')">Escalate</button>{% elif g.risk != 'Low' %}<button class="btn-primary" style="padding:6px 12px; font-size:0.7rem;" onclick="sendAIReminder('{{ g.patient }}')">Send AI Reminder</button>{% else %}<button class="btn-action" onclick="showToast('Scheduling sequence initiated...')">Schedule</button>{% endif %}</td></tr>
+                            <tr><td style="font-weight:700;">{{ g.patient_name }}</td><td>{{ g.test_required }}</td><td>{{ g.overdue_days }} days</td><td>{% if g.risk == 'High' %}<span class="status-pill pill-critical">High</span>{% elif g.risk == 'Critical' %}<span class="status-pill pill-critical">Critical</span>{% elif g.risk == 'Medium' %}<span class="status-pill pill-medium">Medium</span>{% else %}{{ g.risk }}{% endif %}</td><td>{% if g.risk == 'Critical' %}<button class="btn-action" style="color:red; border-color:red;" onclick="escalateCare(this, '{{ g.patient_name }}')">Escalate</button>{% elif g.risk != 'Low' %}<button class="btn-primary" style="padding:6px 12px; font-size:0.7rem;" onclick="sendAIReminder('{{ g.patient_name }}')">Send AI Reminder</button>{% else %}<button class="btn-action" onclick="showToast('Scheduling sequence initiated...')">Schedule</button>{% endif %}</td></tr>
                             {% endfor %}
                         </tbody>
                     </table>
@@ -389,23 +383,6 @@
                         <p style="font-size:0.7rem; color:#666; margin: 10px 0;">AI messaging conversion metrics.</p>
                         <button class="btn-primary" onclick="generateReport('Patient Engagement Metrics')">Generate PDF</button>
                     </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- COORDINATORS -->
-        <div id="coordinators" class="tab-content">
-            <div class="content-card">
-                <div class="card-head"><h3>Care Coordinators</h3></div>
-                <div class="table-wrap">
-                    <table>
-                        <thead><tr><th>Name</th><th>Assigned Patients</th><th>Status</th></tr></thead>
-                        <tbody>
-                            {% for c in coordinators %}
-                            <tr><td style="font-weight:700;">{{ c.name }}</td><td>{{ c.assigned_patients }}</td><td><span class="status-pill pill-active">{{ c.status }}</span></td></tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
                 </div>
             </div>
         </div>
@@ -486,17 +463,15 @@
                 </div>
                 <div class="metric-card" style="padding:15px;">
                     <div class="m-label" style="font-size:0.6rem;">Engagement Status</div>
-                    <p style="font-size:0.85rem;"><strong>Last Contact:</strong> 2 days ago</p>
-                    <p style="font-size:0.85rem;"><strong>Channel:</strong> WhatsApp</p>
-                    <p style="font-size:0.85rem;"><strong>Response:</strong> High</p>
+                    <p style="font-size:0.85rem;"><strong>Last Contact:</strong> <span id="viewPLastContact">—</span></p>
+                    <p style="font-size:0.85rem;"><strong>Channel:</strong> <span id="viewPChannel">—</span></p>
+                    <p style="font-size:0.85rem;"><strong>Response:</strong> <span id="viewPResponse">—</span></p>
                 </div>
             </div>
             <div class="content-card" style="margin-bottom:20px;">
                 <div class="card-head" style="padding:12px 20px;"><h3>Recent Test History</h3></div>
-                <div style="padding:15px; font-size:0.8rem; color:#666;">
-                    • 12-Feb-2026: HbA1c result 9.5 (High)<br>
-                    • 10-Nov-2025: BP checked 140/90<br>
-                    • 05-Sep-2025: Lipid Profile completed
+                <div id="viewPTestHistory" style="padding:15px; font-size:0.8rem; color:#666;">
+                    No test history available.
                 </div>
             </div>
             <div class="modal-actions">
@@ -618,10 +593,9 @@
             if (activeItem) activeItem.classList.add('active');
 
             const titles = {
-                'dashboard': ['Dashboard', 'Overview of Apollo Chennai activity'],
+                'dashboard': ['Dashboard', 'Overview of {{ hospital_name }} activity'],
                 'patients': ['Patients', 'Manage hospital patient records and datasets'],
                 'doctors': ['Doctors', 'Manage medical staff and patient assignments'],
-                'coordinators': ['Care Coordinators', 'Patient engagement staff monitoring'],
                 'technicians': ['Lab Technicians', 'Home sample collection logistics'],
                 'caregap': ['Care Gap Monitor', 'Real-time tracking of overdue medical tests'],
                 'outreach': ['Messaging', 'Automated and manual patient communication'],
@@ -780,6 +754,31 @@
         }
 
         // --- REPORTS LOGIC ---
+        // --- LIVE FEED & DISEASE REFRESH ---
+        function refreshHospitalFeed() {
+            fetch("{% url 'accounts:api_hospital_feed' %}")
+                .then(r => r.json())
+                .then(d => {
+                    if (d.feed && d.feed.length > 0) {
+                        const container = document.getElementById('hospitalFeed');
+                        container.innerHTML = d.feed.map(item =>
+                            `<div class="feed-item"><div class="feed-icon">${item.icon || '📋'}</div><div class="feed-text"><p>${item.text}</p><span>${item.time}</span></div></div>`
+                        ).join('');
+                    }
+                    if (d.disease_data && d.disease_data.length > 0) {
+                        const opacities = [1, 0.7, 0.5, 0.3, 0.2, 0.15];
+                        document.getElementById('diseaseChartBars').innerHTML = d.disease_data.map((dd, i) =>
+                            `<div class="chart-bar" style="height: ${dd.height}%; opacity: ${opacities[i] || 0.3};"><span>${dd.pct}%</span></div>`
+                        ).join('');
+                        document.getElementById('diseaseChartLabels').innerHTML = d.disease_data.map(dd =>
+                            `<div class="chart-label">${dd.label}</div>`
+                        ).join('');
+                    }
+                }).catch(() => {});
+        }
+        refreshHospitalFeed();
+        setInterval(refreshHospitalFeed, 30000);
+
         function generateReport(reportName) {
             const reportWindow = window.open('', '_blank');
             const date = new Date().toLocaleDateString();
@@ -799,15 +798,15 @@
                 '</style></head><body>',
                 '<div class="header">',
                 '<div class="logo">Medi<span>SynC.</span></div>',
-                '<div class="hosp-info"><strong>Apollo Chennai</strong><br>Date: ', date, '</div>',
+                '<div class="hosp-info"><strong>{{ hospital_name }}</strong><br>Date: ', date, '</div>',
                 '</div>',
                 '<h2>', reportName, '</h2>',
                 '<p>Clinical summary processed by MediSynC AI Engine.</p>',
                 '<table><thead><tr><th>Parameter</th><th>Value</th><th>Status</th></tr></thead>',
                 '<tbody>',
-                '<tr><td>Total Care Gaps Monitored</td><td>420</td><td>Healthy</td></tr>',
-                '<tr><td>Outreach Conversion</td><td>62%</td><td>Above Average</td></tr>',
-                '<tr><td>Patient Compliance Rate</td><td>89%</td><td>Target Met</td></tr>',
+                '<tr><td>Total Care Gaps Open</td><td>{{ care_gaps_open }}</td><td>Tracked</td></tr>',
+                '<tr><td>Care Gaps Resolved</td><td>{{ care_gaps_closed }}</td><td>Processed</td></tr>',
+                '<tr><td>Total Patients</td><td>{{ total_patients }}</td><td>Active</td></tr>',
                 '</tbody></table>',
                 '<div class="footer">MediSynC Systems | Synchronizing Data, Doctors, and Patients.<br>© 2026 MediSynC AI.</div>',
                 '<script>window.onload = function() { window.print(); };</' + 'script>',

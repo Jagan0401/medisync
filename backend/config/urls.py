@@ -23,6 +23,8 @@ urlpatterns = [
     path('', accounts_views.index_view, name='index'),
     path('admin/', admin.site.urls),
     path('accounts/', include('apps.accounts.urls')),
+    path('api/v1/auth/', include('apps.accounts.api_urls')),
+    path('api/v1/dashboard/', include('apps.accounts.dashboard_urls')),
     path('api/hospitals/', include('apps.hospitals.urls')),
     path('api/patients/', include('apps.patients.urls')),
     path('api/monitoring/', include('apps.monitoring.urls')),
